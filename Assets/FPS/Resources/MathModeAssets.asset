@@ -1,0 +1,39 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 38d11dbd069ccb64fae0f4afb739f18a, type: 3}
+  m_Name: MathModeAssets
+  m_EditorClassIdentifier: Assembly-CSharp::Unity.FPS.MathMode.MathModeAssets
+  Font: {fileID: 11400000, guid: 13985c073be28744387111b32bec33a4, type: 2}
+  UnlitMaterial: {fileID: 2100000, guid: 7330b87c7829bcf4f98c5afb1de1a202, type: 2}
+  LineMaterial: {fileID: 2100000, guid: e9b5ab6be7a8422489f9ba2f8e0a5f41, type: 2}
+  LitMaterial: {fileID: 2100000, guid: d40f1058497f1094ba49a9948abae338, type: 2}
+  ThemeSkyboxes:
+  - {fileID: 2100000, guid: 7f4fd932ca2e0a7408f4944b35be22a4, type: 2}
+  - {fileID: 2100000, guid: aafe3d50a88d78046b2c87e138c5a10d, type: 2}
+  - {fileID: 2100000, guid: 000dc39abd5b91e43bfa3a87e6290acc, type: 2}
+  - {fileID: 2100000, guid: b5270df0319ea6042a29bd7d5f2d8e63, type: 2}
+  RewardPrefab: {fileID: 2529580269645609534, guid: 9973c412032becb4ca116ca08be62edf,
+    type: 3}
+  PenaltyEnemyPrefab: {fileID: 2015434656898269652, guid: 25a1b0efadb966e44889fce712c8ff8d,
+    type: 3}
+  ExplosionVfx: {fileID: 8950624839484268180, guid: 45ce85b82008be84287f2c7e5bf07647,
+    type: 3}
+  Weapons:
+  - {fileID: 8323776800172828795, guid: b318fabc73446b746a1005cede0c4ceb, type: 3}
+  - {fileID: 7195672887730560302, guid: 0474bf27598a38848b641e85f214c048, type: 3}
+  - {fileID: 1105522819706252728, guid: 5a111c1b313d3d945b6c159ffdc4fb63, type: 3}
+  - {fileID: 4557513621514234881, guid: 2249955b6f977da4c94b87fb20865bb2, type: 3}
+  - {fileID: 4320089961138118298, guid: 5dbe9d8f491f98e409c40c2894535d8a, type: 3}
+  - {fileID: 4077487106849084771, guid: f281cdbe67eb1294688dfb85896d3f23, type: 3}
+  - {fileID: 587654508039458294, guid: cb89207314c4c6746b1229afb88ec2fc, type: 3}
+  - {fileID: 5473258141551084140, guid: a7f07f2bbe7a58f4ab58139d7420d127, type: 3}
+  - {fileID: 1857249352219422586, guid: 3a1cbf944e75dfe4798a7db81671fa3b, type: 3}
