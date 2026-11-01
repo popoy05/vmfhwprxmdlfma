@@ -107,3 +107,10 @@ InitTestScene*.unity*
 
 # Auto-generated cache in Assets folder
 /[Aa]ssets/[Ss]ceneDependencyCache*
+
+# 에셋스토어 맵 (Unity URP Terrain Sample Project, 약 4GB · 100MB 넘는 파일 포함)
+# 다른 컴퓨터에서는 Package Manager > My Assets 에서 같은 에셋을 다시 Import 하면 된다.
+/[Aa]ssets/TerrainDemoScene_URP/
+/[Aa]ssets/TerrainDemoScene_URP.meta
+/[Aa]ssets/TerrainDemoScene_HDRP/
+/[Aa]ssets/TerrainDemoScene_HDRP.meta

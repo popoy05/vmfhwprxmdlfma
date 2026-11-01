@@ -17,6 +17,9 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/FPS/Scenes/MainScene.unity
     guid: d794a2ef8ba31d847ad3c19d03e2ddb9
+  - enabled: 1
+    path: Assets/NewMode/Scenes/NewModeScene.unity
+    guid: 46ff4c0bff4656b4d8190d7381935344
   m_configObjects:
     com.unity.dt.app-ui: {fileID: 11400000, guid: 1b1c20d82303e4b5781c3ef50ac1449f,
       type: 2}

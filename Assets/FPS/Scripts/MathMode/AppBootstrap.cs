@@ -10,6 +10,11 @@ namespace Unity.FPS.MathMode
     {
         public const string MenuScene = "IntroMenu";
         public const string GameScene = "MainScene";
+        public const string NewModeScene = "NewModeScene";
+
+        // true면 IntroMenu에서 바로 이전 모드(수학 FPS) 메뉴를, false면 모드 선택 화면을 보여준다.
+        // 이전 모드를 고른 뒤에는 결과 화면의 "메인 메뉴"가 수학 FPS 메뉴로 돌아오도록 유지된다.
+        public static bool ClassicMenu;
 
         static bool s_MenuShown;
 
@@ -17,6 +22,7 @@ namespace Unity.FPS.MathMode
         static void Init()
         {
             s_MenuShown = false;
+            ClassicMenu = false;
             Application.targetFrameRate = 60;
             ApplyScreenMode();
             SceneManager.sceneLoaded -= OnSceneLoaded;
@@ -61,7 +67,8 @@ namespace Unity.FPS.MathMode
             {
                 case MenuScene:
                     s_MenuShown = true;
-                    new GameObject("MathMode MainMenu").AddComponent<MainMenuScreen>();
+                    if (ClassicMenu) new GameObject("MathMode MainMenu").AddComponent<MainMenuScreen>();
+                    else new GameObject("Mode Select").AddComponent<ModeSelectScreen>();
                     break;
                 case "WinScene":
                     new GameObject("MathMode Result").AddComponent<ResultScreen>().Win = true;

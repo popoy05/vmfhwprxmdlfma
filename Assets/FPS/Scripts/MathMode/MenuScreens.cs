@@ -196,6 +196,9 @@ namespace Unity.FPS.MathMode
             m_Info.fontSizeMin = 14f;
             m_Info.fontSizeMax = 22f;
 
+            var back = UIUtil.Button(canvas.transform, m_Font, "◀ 모드 선택", new Color(0.25f, 0.35f, 0.55f), BackToModeSelect, new Vector2(240f, 60f), 26f);
+            UIUtil.Place((RectTransform)back.transform, new Vector2(1f, 1f), new Vector2(-150f, -50f), new Vector2(240f, 60f));
+
             if (!Application.isMobilePlatform)
             {
                 var quit = UIUtil.Button(side, m_Font, "종료", new Color(0.45f, 0.2f, 0.25f), Application.Quit, new Vector2(160f, 54f), 24f);
@@ -295,11 +298,19 @@ namespace Unity.FPS.MathMode
             SceneManager.LoadScene(AppBootstrap.GameScene);
         }
 
+        void BackToModeSelect()
+        {
+            AppBootstrap.ClassicMenu = false;
+            SceneManager.LoadScene(AppBootstrap.MenuScene);
+        }
+
         void Update()
         {
             Keyboard kb = Keyboard.current;
             if (kb != null && (kb.enterKey.wasPressedThisFrame || kb.spaceKey.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame))
                 StartGame();
+            else if (kb != null && kb.escapeKey.wasPressedThisFrame)
+                BackToModeSelect();
         }
     }
 
