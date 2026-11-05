@@ -18,8 +18,11 @@ EditorBuildSettings:
     path: Assets/FPS/Scenes/MainScene.unity
     guid: d794a2ef8ba31d847ad3c19d03e2ddb9
   - enabled: 1
-    path: Assets/NewMode/Scenes/NewModeScene.unity
-    guid: 46ff4c0bff4656b4d8190d7381935344
+    path: Assets/NewMode/Scenes/NewModeArena.unity
+    guid: d466329ccc2c2824eaf133d40ea37482
+  - enabled: 1
+    path: Assets/NewMode/Scenes/NewModeCharacter.unity
+    guid: 1b3a64c5fc143d44abc7e70942a78d06
   m_configObjects:
     com.unity.dt.app-ui: {fileID: 11400000, guid: 1b1c20d82303e4b5781c3ef50ac1449f,
       type: 2}

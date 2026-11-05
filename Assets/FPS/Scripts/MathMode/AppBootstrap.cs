@@ -10,7 +10,11 @@ namespace Unity.FPS.MathMode
     {
         public const string MenuScene = "IntroMenu";
         public const string GameScene = "MainScene";
-        public const string NewModeScene = "NewModeScene";
+        public const string NewModeArenaScene = "NewModeArena";   // 새 모드: 중세 아레나 (Medieval Arena Mini)
+        public const string NewModeCharacterScene = "NewModeCharacter"; // 새 모드: 캐릭터 꾸미기 (맵 선택 전)
+
+        // (예전 맵 선택 단계용 — 지금은 맵이 하나라 쓰지 않음)
+        public static bool NewModeMapSelect;
 
         // true면 IntroMenu에서 바로 이전 모드(수학 FPS) 메뉴를, false면 모드 선택 화면을 보여준다.
         // 이전 모드를 고른 뒤에는 결과 화면의 "메인 메뉴"가 수학 FPS 메뉴로 돌아오도록 유지된다.
@@ -22,7 +26,9 @@ namespace Unity.FPS.MathMode
         static void Init()
         {
             s_MenuShown = false;
+            s_HandledFirstScene = false;
             ClassicMenu = false;
+            NewModeMapSelect = false;
             Application.targetFrameRate = 60;
             ApplyScreenMode();
             SceneManager.sceneLoaded -= OnSceneLoaded;
@@ -47,18 +53,33 @@ namespace Unity.FPS.MathMode
 #endif
         }
 
+        static bool s_HandledFirstScene;
+
+        // 처음 켜진 장면은 sceneLoaded 이벤트가 오지 않는 경우가 있다 (에디터에서 플레이를 누를 때 등).
+        // 그래서 첫 장면을 다 불러온 뒤 한 번 더 확인해서, 아직 처리 안 됐으면 직접 처리한다.
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+        static void AfterFirstSceneLoad()
+        {
+            if (!s_HandledFirstScene) OnSceneLoaded(SceneManager.GetActiveScene(), LoadSceneMode.Single);
+        }
+
         static void OnSceneLoaded(Scene scene, LoadSceneMode mode)
         {
+            // 패키지·에디터가 겹쳐 불러오는(Additive) 장면은 무시한다 — 우리 화면 전환과 상관없음
+            if (mode != LoadSceneMode.Single) return;
+            s_HandledFirstScene = true;
 #if UNITY_STANDALONE && !UNITY_EDITOR
             // 사용자가 창 모드로 바꿨더라도 장면이 바뀔 때마다 전체화면으로 되돌린다
             if (Screen.fullScreenMode != FullScreenMode.FullScreenWindow) ApplyScreenMode();
 #endif
             Time.timeScale = 1f;
 
-            // 게임 장면에서 바로 켜졌다면(에디터에서 MainScene을 열고 플레이 등) 먼저 메인 메뉴로 보낸다
-            if (scene.name == GameScene && !s_MenuShown)
+            // 처음 켜졌을 때는 어떤 장면에서 시작했든(에디터에서 새 모드 맵·캐릭터 씬을 열고 플레이 등) 먼저 시작 화면으로 보낸다
+            if (!s_MenuShown && scene.name != MenuScene)
             {
                 s_MenuShown = true;
+                ClassicMenu = false;
+                NewModeMapSelect = false;
                 SceneManager.LoadScene(MenuScene);
                 return;
             }

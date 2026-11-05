@@ -102,6 +102,7 @@ namespace Unity.FPS.MathMode
             colors.selectedColor = Color.white;
             button.colors = colors;
             if (onClick != null) button.onClick.AddListener(onClick);
+            rt.gameObject.AddComponent<ButtonJuice>(); // 마우스 올림·누름 반응 (DOTween)
 
             var text = Text(rt, font, label, fontSize, TextAlignmentOptions.Center);
             Stretch(text.rectTransform, 6f);
