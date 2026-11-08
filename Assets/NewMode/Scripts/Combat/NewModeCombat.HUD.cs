@@ -7,158 +7,210 @@ using UnityEngine.UI;
 
 namespace Unity.FPS.NewMode
 {
-    // 전투 HUD (DOTween 애니메이션)
-    //  - 아래: 스킬 바 (평타 + Q·E·X·C) — 무기를 바꾸면 차례로 튀어 올라온다, 쓰면 콩 튀고, 쿨타임이 끝나면 반짝
-    //  - 왼쪽: 무기 목록 (1~7) — 고른 무기가 커지고 색이 바뀐다
-    //  - 위: 스킬 함수식 배너 — 커지며 나타났다가 흐려진다
+    // 전투 HUD — 원신 풍
+    //  · 오른쪽 아래: 둥근 스킬 버튼 (C 궁극기가 가장 크고, Q·E·X가 그 둘레, 평타는 작게) — 쿨타임은 부채꼴로 걷힘
+    //  · 평타 단계 표시: 마름모 3개 (1단·2단·3단)
+    //  · 가운데 위: 알림 띠 (가운데 진하고 양끝이 옅은 남색 띠 + 금색 선)
+    //  · 판을 깔지 않고 그림자 있는 글씨, 금색 포인트
     public partial class NewModeCombat
     {
         TMP_FontAsset m_Font;
         Canvas m_Canvas;
-        RectTransform m_SkillBar;
+        RectTransform m_SkillRoot, m_BannerRoot;
         TextMeshProUGUI m_Banner;
-        Sequence m_BannerSeq;
-        readonly List<(RectTransform row, Image bg, TextMeshProUGUI label)> m_WeaponRows = new List<(RectTransform, Image, TextMeshProUGUI)>();
+        RectTransform[] m_ComboPips;
+        RectTransform m_TargetMark;
 
         void BuildHUD()
         {
             m_Canvas = UIUtil.Canvas(transform, "Combat HUD", 9);
 
-            m_SkillBar = new GameObject("Skill Bar", typeof(RectTransform)).GetComponent<RectTransform>();
-            m_SkillBar.SetParent(m_Canvas.transform, false);
-            UIUtil.Place(m_SkillBar, new Vector2(0.5f, 0f), new Vector2(0f, 82f), new Vector2(1300f, 130f));
+            m_SkillRoot = new GameObject("Skills", typeof(RectTransform)).GetComponent<RectTransform>();
+            m_SkillRoot.SetParent(m_Canvas.transform, false);
+            m_SkillRoot.anchorMin = m_SkillRoot.anchorMax = new Vector2(1f, 0f);
+            m_SkillRoot.sizeDelta = Vector2.zero;
+            m_SkillRoot.anchoredPosition = Vector2.zero;
 
-            // 스킬 함수식 배너
-            m_Banner = UIUtil.Text(m_Canvas.transform, m_Font, "", 54f, TextAlignmentOptions.Center);
-            UIUtil.Place(m_Banner.rectTransform, new Vector2(0.5f, 1f), new Vector2(0f, -150f), new Vector2(1400f, 140f));
-            m_Banner.textWrappingMode = TextWrappingModes.NoWrap;
-            m_Banner.enableAutoSizing = true;
-            m_Banner.fontSizeMin = 28f;
-            m_Banner.fontSizeMax = 54f;
-            m_Banner.outlineWidth = 0.2f;
-            m_Banner.outlineColor = new Color(0.05f, 0.1f, 0.25f);
-            m_Banner.alpha = 0f;
+            m_BannerRoot = Gs.Banner(m_Canvas.transform, out m_Banner, 300f, 130f);
+            m_BannerRoot.GetComponent<CanvasGroup>().alpha = 0f;
+
+            // 평타 단계: ◆ ◆ ◆ (평타 버튼 위)
+            m_ComboPips = new RectTransform[3];
+            for (int i = 0; i < 3; i++)
+            {
+                var pip = Gs.Diamond(m_SkillRoot, new Color(1f, 1f, 1f, 0.25f), 16f);
+                pip.anchorMin = pip.anchorMax = new Vector2(0.5f, 0.5f);
+                pip.anchoredPosition = new Vector2(-500f + i * 30f, 175f);
+                m_ComboPips[i] = pip;
+            }
+
+            // 타겟 표시: 다음 공격이 향할 적 머리 위 ▼ (금색 마름모 + 고리)
+            m_TargetMark = new GameObject("Target", typeof(RectTransform)).GetComponent<RectTransform>();
+            m_TargetMark.SetParent(m_Canvas.transform, false);
+            m_TargetMark.anchorMin = m_TargetMark.anchorMax = new Vector2(0.5f, 0.5f);
+            m_TargetMark.sizeDelta = new Vector2(44f, 44f);
+            var ring = UIUtil.Image(m_TargetMark, "Ring", new Color(1f, 0.45f, 0.35f, 0.9f));
+            ring.GetComponent<Image>().sprite = Gs.Ring;
+            UIUtil.Stretch(ring, 0f);
+            var dia = Gs.Diamond(m_TargetMark, Gs.GoldBright, 12f);
+            dia.anchorMin = dia.anchorMax = new Vector2(0.5f, 0.5f);
+            dia.anchoredPosition = Vector2.zero;
+            m_TargetMark.gameObject.SetActive(false);
 
             BuildQuizHUD();
         }
 
+        void UpdateTargetMark()
+        {
+            if (!m_TargetMark) return;
+            Camera cam = m_Player ? m_Player.Camera : null;
+            TrainingDummy t = null;
+            if (cam && !m_InCutscene && !m_Player.InputBlocked && !(m_Weapon.Kind == WeaponKind.Gun && m_Player.Aiming))
+                t = FindTarget(m_Weapon.Kind == WeaponKind.Gun ? 14f : k_MeleeLock);
+            if (!t) { m_TargetMark.gameObject.SetActive(false); return; }
+            Vector3 sp = cam.WorldToScreenPoint(t.Head + Vector3.up * t.HeadRadius * 2.4f);
+            if (sp.z < 0f) { m_TargetMark.gameObject.SetActive(false); return; }
+            var canvasRect = (RectTransform)m_Canvas.transform;
+            float k = canvasRect.rect.width / Screen.width;
+            m_TargetMark.gameObject.SetActive(true);
+            m_TargetMark.anchoredPosition = new Vector2(sp.x * k, sp.y * k) - canvasRect.rect.size * 0.5f;
+            m_TargetMark.localScale = Vector3.one * (0.9f + 0.1f * Mathf.Sin(Time.unscaledTime * 8f));
+            m_TargetMark.localRotation = Quaternion.Euler(0f, 0f, Time.unscaledTime * 90f);
+        }
+
+        // 버튼 하나: 어두운 원 + 색 고리 + 이름 두 글자 + 키 + 쿨타임 부채꼴
+        RectTransform SkillButton(SkillDef skill, Vector2 pos, float size, Color ring, string key)
+        {
+            var slot = UIUtil.RoundedImage(m_SkillRoot, skill.Name, new Color(0.08f, 0.09f, 0.14f, 0.82f), true);
+            slot.anchorMin = slot.anchorMax = new Vector2(0.5f, 0.5f);
+            slot.anchoredPosition = pos;
+            slot.sizeDelta = new Vector2(size, size);
+
+            var r = UIUtil.Image(slot, "Ring", ring);
+            r.GetComponent<Image>().sprite = Gs.Ring;
+            UIUtil.Stretch(r, 0f);
+
+            string shortName = skill.Name.Replace(" ", "");
+            if (shortName.Length > 2) shortName = shortName.Substring(0, 2);
+            var n = Gs.Text(slot, $"<b>{shortName}</b>", size * 0.3f, TextAlignmentOptions.Center, Color.white, true);
+            UIUtil.Stretch(n.rectTransform, 0f);
+            n.rectTransform.offsetMin = new Vector2(size * 0.1f, size * 0.2f);
+            n.rectTransform.offsetMax = new Vector2(-size * 0.1f, -size * 0.1f);
+
+            var cover = UIUtil.RoundedImage(slot, "Cooldown", new Color(0f, 0f, 0f, 0.62f), true);
+            UIUtil.Stretch(cover, size * 0.06f);
+            var coverImage = cover.GetComponent<Image>();
+            coverImage.type = Image.Type.Filled;
+            coverImage.fillMethod = Image.FillMethod.Radial360;
+            coverImage.fillOrigin = (int)Image.Origin360.Top;
+            coverImage.fillClockwise = false;
+            coverImage.fillAmount = skill.Cooldown > 0f ? skill.Remaining / skill.Cooldown : 0f;
+            skill.CooldownFill = coverImage;
+
+            var cd = Gs.Text(slot, "", size * 0.36f, TextAlignmentOptions.Center, Color.white, true);
+            UIUtil.Stretch(cd.rectTransform, 0f);
+            cd.fontStyle = FontStyles.Bold;
+            skill.CooldownText = cd;
+            skill.WasReady = skill.Remaining <= 0f;
+
+            var k = Gs.Key(slot, key, Mathf.Max(24f, size * 0.26f));
+            k.anchorMin = k.anchorMax = new Vector2(0.5f, 0f);
+            k.anchoredPosition = new Vector2(0f, 4f);
+
+            var label = Gs.Text(slot, skill.Name, 17f, TextAlignmentOptions.Center, Gs.Cream, true);
+            label.rectTransform.anchorMin = label.rectTransform.anchorMax = new Vector2(0.5f, 0f);
+            label.rectTransform.sizeDelta = new Vector2(170f, 24f);
+            label.rectTransform.anchoredPosition = new Vector2(0f, -24f);
+            label.textWrappingMode = TextWrappingModes.NoWrap;
+
+            skill.Slot = slot;
+            UIAnim.PopIn(slot, 0.05f, 0.35f);
+            return slot;
+        }
+
         void RebuildSkillBar()
         {
-            if (!m_SkillBar) return;
-            foreach (Transform child in m_SkillBar) Destroy(child.gameObject);
+            if (!m_SkillRoot) return;
+            foreach (Transform child in m_SkillRoot)
+                if (System.Array.IndexOf(m_ComboPips, child) < 0) Destroy(child.gameObject);
 
-            var all = new List<SkillDef> { m_Weapon.Basic };
-            all.AddRange(m_Weapon.Skills);
-            float width = 236f, gap = 12f;
-            float startX = -(all.Count - 1) * (width + gap) * 0.5f;
-            for (int i = 0; i < all.Count; i++)
+            Color c = m_Weapon.Color;
+            if (NewModeTouch.Enabled)
             {
-                SkillDef skill = all[i];
-                var slot = UIUtil.RoundedImage(m_SkillBar, skill.Name, new Color(0.03f, 0.06f, 0.14f, 0.85f));
-                UIUtil.Place(slot, new Vector2(0.5f, 0.5f), new Vector2(startX + i * (width + gap), 0f), new Vector2(width, 120f));
-                skill.Slot = slot;
-
-                // 무기 색 테두리 느낌의 윗줄
-                var stripe = UIUtil.Image(slot, "Stripe", m_Weapon.Color);
-                stripe.anchorMin = new Vector2(0.08f, 1f);
-                stripe.anchorMax = new Vector2(0.92f, 1f);
-                stripe.pivot = new Vector2(0.5f, 1f);
-                stripe.sizeDelta = new Vector2(0f, 4f);
-                stripe.anchoredPosition = new Vector2(0f, -3f);
-
-                var key = UIUtil.RoundedImage(slot, "Key", i == 0 ? new Color(0.35f, 0.4f, 0.55f) : Color.Lerp(m_Weapon.Color, Color.black, 0.35f));
-                float keyWidth = i == 0 ? (m_Weapon.Kind == WeaponKind.Gun ? 120f : 74f) : 46f;
-                UIUtil.Place(key, new Vector2(0f, 1f), new Vector2(keyWidth * 0.5f + 5f, -4f), new Vector2(keyWidth, 36f));
-                var keyText = UIUtil.Text(key, m_Font, $"<b>{(i == 0 ? (m_Weapon.Kind == WeaponKind.Gun ? "좌클릭 연사" : "좌클릭") : skill.Key)}</b>", 20f, TextAlignmentOptions.Center);
-                UIUtil.Stretch(keyText.rectTransform, 2f);
-                keyText.enableAutoSizing = true;
-                keyText.fontSizeMin = 10f;
-                keyText.fontSizeMax = 20f;
-
-                var name = UIUtil.Text(slot, m_Font, $"<b>{skill.Name}</b>", 25f, TextAlignmentOptions.Center);
-                UIUtil.Place(name.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0f, 8f), new Vector2(width - 16f, 36f));
-                name.enableAutoSizing = true;
-                name.fontSizeMin = 14f;
-                name.fontSizeMax = 25f;
-
-                var formula = UIUtil.Text(slot, m_Font, FxFormula.Rich(skill.Formula), 20f, TextAlignmentOptions.Center);
-                UIUtil.Place(formula.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 24f), new Vector2(width - 16f, 30f));
-                formula.color = new Color(1f, 1f, 1f, 0.45f);
-                formula.enableAutoSizing = true;
-                formula.fontSizeMin = 11f;
-                formula.fontSizeMax = 15f;
-
-                var cover = UIUtil.RoundedImage(slot, "Cooldown", new Color(0f, 0f, 0f, 0.6f));
-                UIUtil.Stretch(cover, 0f);
-                var coverImage = cover.GetComponent<Image>();
-                coverImage.type = Image.Type.Filled;
-                coverImage.fillMethod = Image.FillMethod.Vertical;
-                coverImage.fillOrigin = (int)Image.OriginVertical.Bottom;
-                coverImage.fillAmount = skill.Cooldown > 0f ? skill.Remaining / skill.Cooldown : 0f;
-                skill.CooldownFill = coverImage;
-
-                var cd = UIUtil.Text(slot, m_Font, "", 40f, TextAlignmentOptions.Center);
-                UIUtil.Stretch(cd.rectTransform, 0f);
-                cd.fontStyle = FontStyles.Bold;
-                skill.CooldownText = cd;
-                skill.WasReady = skill.Remaining <= 0f;
-
-                UIAnim.SlideIn(slot, new Vector2(0f, -160f), 0.04f * i, 0.4f);
+                // 휴대폰: 큰 공격 버튼을 중심으로 Q · E · X · C가 둘레에 (터치 영역과 같은 자리)
+                SkillButton(m_Weapon.Basic, NewModeTouch.AttackPos, NewModeTouch.AttackSize, new Color(1f, 1f, 1f, 0.75f), "공격");
+                m_Weapon.Basic.CooldownFill.fillAmount = 0f;
+                for (int i = 0; i < 4; i++)
+                    SkillButton(m_Weapon.Skills[i], NewModeTouch.SkillPos(i), i == 3 ? NewModeTouch.UltSize : NewModeTouch.SkillSize,
+                        i == 3 ? Gs.GoldBright : c, m_Weapon.Skills[i].Key);
+                for (int i = 0; i < m_ComboPips.Length; i++)
+                {
+                    m_ComboPips[i].anchoredPosition = new Vector2(-205f + i * 30f, 285f);
+                    m_ComboPips[i].SetAsLastSibling();
+                }
+                return;
             }
-
-            for (int i = 0; i < m_WeaponRows.Count; i++)
+            // C(궁극기)를 중심으로, 왼쪽에서 위로 호를 그리며 Q · E · X  (원신의 원소 스킬·원소 폭발 배치처럼)
+            Vector2 ult = new Vector2(-140f, 160f);
+            SkillButton(m_Weapon.Skills[3], ult, 150f, Gs.GoldBright, "C");
+            float R = 180f;
+            float[] angles = { 182f, 142f, 102f };
+            for (int i = 0; i < 3; i++)
             {
-                var (row, bg, label) = m_WeaponRows[i];
-                bool on = i == m_Weapon.Index;
-                // 등장 애니메이션(SlideIn)은 살려 두고, 강조용 크기 트윈만 바꾼다
-                DOTween.Kill("weapon-row-" + i);
-                row.DOScale(on ? 1.08f : 1f, 0.25f).SetEase(Ease.OutBack).SetId("weapon-row-" + i).SetLink(row.gameObject);
-                bg.DOKill();
-                bg.DOColor(on ? new Color(m_Weapons[i].Color.r, m_Weapons[i].Color.g, m_Weapons[i].Color.b, 0.55f) : new Color(1f, 1f, 1f, 0.06f), 0.25f).SetLink(bg.gameObject);
-                label.color = on ? Color.white : new Color(0.75f, 0.8f, 0.9f);
+                float a = angles[i] * Mathf.Deg2Rad;
+                SkillButton(m_Weapon.Skills[i], ult + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * R, 96f, c, m_Weapon.Skills[i].Key);
+            }
+            SkillButton(m_Weapon.Basic, new Vector2(-470f, 110f), 78f, new Color(1f, 1f, 1f, 0.6f), "좌클릭");
+            m_Weapon.Basic.CooldownFill.fillAmount = 0f;
+            for (int i = 0; i < m_ComboPips.Length; i++)
+            {
+                m_ComboPips[i].anchoredPosition = new Vector2(-500f + i * 30f, 172f);
+                m_ComboPips[i].SetAsLastSibling();
             }
         }
 
         void Punch(SkillDef skill)
         {
             if (!skill.Slot) return;
-            UIAnim.Punch(skill.Slot, 0.12f, 0.3f);
-            var image = skill.Slot.GetComponent<Image>();
-            UIAnim.Flash(image, Color.Lerp(m_Weapon.Color, Color.white, 0.3f), 0.35f);
+            UIAnim.Punch(skill.Slot, 0.14f, 0.3f);
         }
 
         void ShowBanner(string text)
         {
             if (!m_Banner) return;
             m_Banner.text = FxFormula.Rich(text);
-            m_BannerSeq?.Kill();
-            m_Banner.alpha = 0f;
-            m_Banner.rectTransform.localScale = Vector3.one * 0.7f;
-            m_BannerSeq = DOTween.Sequence()
-                .Append(m_Banner.DOFade(1f, 0.15f))
-                .Join(m_Banner.rectTransform.DOScale(1f, 0.35f).SetEase(Ease.OutBack))
-                .AppendInterval(1.1f)
-                .Append(m_Banner.DOFade(0f, 0.4f))
-                .SetLink(m_Banner.gameObject);
+            Gs.Show(m_BannerRoot, 1.2f);
         }
 
         void UpdateHUD()
         {
             if (m_Weapon == null) return;
+            UpdateTargetMark();
             foreach (var skill in m_Weapon.Skills)
             {
                 if (!skill.CooldownFill) continue;
                 skill.CooldownFill.fillAmount = skill.Cooldown > 0f ? skill.Remaining / skill.Cooldown : 0f;
                 skill.CooldownText.text = skill.Remaining > 0f ? Mathf.CeilToInt(skill.Remaining).ToString() : "";
 
-                // 쿨타임이 막 끝나면 반짝
                 bool ready = skill.Remaining <= 0f;
-                if (ready && !skill.WasReady)
-                {
-                    UIAnim.Punch(skill.Slot, 0.1f, 0.35f);
-                    UIAnim.Flash(skill.Slot.GetComponent<Image>(), new Color(1f, 1f, 1f, 0.9f), 0.4f);
-                }
+                if (ready && !skill.WasReady) UIAnim.Punch(skill.Slot, 0.18f, 0.35f);
                 skill.WasReady = ready;
+            }
+            // 궁극기가 준비되면 은은하게 숨쉬기
+            var ultSlot = m_Weapon.Skills[3].Slot;
+            if (ultSlot && m_Weapon.Skills[3].Remaining <= 0f && !DOTween.IsTweening(ultSlot))
+                ultSlot.localScale = Vector3.one * (1f + 0.04f * Mathf.Sin(Time.unscaledTime * 4f));
+
+            // 평타 단계: 이어진 단 수만큼 금색
+            int step = ComboStep;
+            bool live = (m_Current != null && m_CurrentIsBasic) || m_ComboWindow > 0f;
+            for (int i = 0; i < m_ComboPips.Length; i++)
+            {
+                var img = m_ComboPips[i].GetComponent<Image>();
+                Color want = live && i < step ? Gs.GoldBright : new Color(1f, 1f, 1f, 0.22f);
+                img.color = Color.Lerp(img.color, want, Mathf.Clamp01(Time.unscaledDeltaTime * 18f));
+                float sc = live && i == step - 1 ? 1.4f : 1f;
+                m_ComboPips[i].localScale = Vector3.Lerp(m_ComboPips[i].localScale, Vector3.one * sc, Mathf.Clamp01(Time.unscaledDeltaTime * 14f));
             }
         }
     }

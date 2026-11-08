@@ -17,10 +17,13 @@ namespace Unity.FPS.NewMode
             if (!m_Canvas || m_Weapon == null) return;
             if (!m_GimmickLabel)
             {
-                m_GimmickLabel = UIUtil.Text(m_Canvas.transform, m_Font, "", 26f, TextAlignmentOptions.Center);
-                UIUtil.Place(m_GimmickLabel.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 172f), new Vector2(900f, 40f));
-                m_GimmickLabel.outlineWidth = 0.25f;
-                m_GimmickLabel.outlineColor = new Color(0.03f, 0.05f, 0.12f);
+                m_GimmickLabel = Gs.Text(m_Canvas.transform, "", 24f, TextAlignmentOptions.Center, Gs.Cream, true);
+                // 휴대폰: 오른쪽 아래 버튼들과 겹치지 않게 왼쪽으로 비켜서 좁게
+                if (NewModeTouch.Enabled) UIUtil.Place(m_GimmickLabel.rectTransform, new Vector2(0.5f, 0f), new Vector2(-190f, 118f), new Vector2(740f, 36f));
+                else UIUtil.Place(m_GimmickLabel.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 118f), new Vector2(900f, 36f));
+                m_GimmickLabel.enableAutoSizing = true;
+                m_GimmickLabel.fontSizeMin = 16f;
+                m_GimmickLabel.fontSizeMax = 24f;
             }
             string state = m_Weapon.Gimmick != null ? m_Weapon.Gimmick() : "";
             m_GimmickLabel.text = $"<color=#{ColorUtility.ToHtmlStringRGB(Color.Lerp(C, Color.white, 0.35f))}><b>{m_Weapon.GimmickName}</b></color>   {state}";
@@ -55,6 +58,27 @@ namespace Unity.FPS.NewMode
             OnImpact(d, big, crit);
         }
 
+        // ---------------------------------------------------------------- 궁극기 폭발 (층층이 쌓은 연출)
+        //  땅에 퍼지는 원소 색 고리 + 안쪽 흰 고리 + 원소 색 빛 번쩍 + 화면 왜곡·흔들림 + (있으면) 에셋 이펙트
+        void UltBurst(Vector3 pos, float radius, string fx = null, float fxSize = 0.8f)
+        {
+            Color c = C;
+            RingWave.Spawn(pos + Vector3.up * 0.05f * S, radius, new Color(c.r, c.g, c.b, 0.9f), 0.55f);
+            RingWave.Spawn(pos + Vector3.up * 0.06f * S, radius * 0.6f, new Color(1f, 1f, 1f, 0.75f), 0.35f);
+            LightFlash.Spawn(pos + Vector3.up * 1f * S, c, 10f, radius * 1.6f, 0.6f);
+            if (fx != null) Fx.Play(fx, pos, Quaternion.identity, fxSize * S, 0.3f, false);
+            Fx.Play("Sparks explode white", pos + Vector3.up * 0.8f * S, Quaternion.identity, 0.6f * S, 0.15f, false);
+            PostFx.Pulse(0.85f, c);
+            m_Player.Shake(0.26f, 0.5f);
+        }
+
+        // 작은 번쩍임 (궁극기 도중 한 방 한 방)
+        void UltSpark(Vector3 pos)
+        {
+            LightFlash.Spawn(pos, C, 5f, 3f * S, 0.25f);
+            PostFx.Pulse(0.3f, C);
+        }
+
         // ---------------------------------------------------------------- 찾기
 
         List<TrainingDummy> Nearest(Vector3 from, float radius, int max, ICollection<TrainingDummy> exclude = null)
@@ -64,8 +88,9 @@ namespace Unity.FPS.NewMode
             {
                 if (exclude != null && exclude.Contains(d)) continue;
                 Vector3 diff = d.transform.position - from;
+                if (Mathf.Abs(diff.y) > d.Height + 1.5f * S) continue; // 다른 층은 제외
                 diff.y = 0f;
-                float m = diff.magnitude;
+                float m = Mathf.Max(0f, diff.magnitude - d.Radius);     // 몸 가장자리까지
                 if (m <= radius) list.Add((d, m));
             }
             list.Sort((a, b) => a.dist.CompareTo(b.dist));
@@ -79,7 +104,7 @@ namespace Unity.FPS.NewMode
         {
             var list = new List<TrainingDummy>();
             foreach (var d in Nearest(transform.position, radius, 99))
-                if (GeoFunctions.InSector(Local(d.transform.position), radius, halfDeg)) { list.Add(d); if (list.Count >= max) break; }
+                if (GeoFunctions.InSector(LocalNear(d), radius, halfDeg)) { list.Add(d); if (list.Count >= max) break; }
             return list;
         }
 
@@ -184,7 +209,8 @@ namespace Unity.FPS.NewMode
             CharacterController cc = m_Player.Controller;
             for (float t = 0f; t < flight; t += Time.deltaTime)
             {
-                float x = Mathf.Clamp01(t / flight) * D;
+                float u = Mathf.Clamp01(t / flight);
+                float x = Mathf.Lerp(u, Mathf.SmoothStep(0f, 1f, u), 0.45f) * D;
                 cc.Move(World(new Vector2(x, 0f), GeoFunctions.Parabola(x, D, H)) - transform.position);
                 if (slam != null)
                 {
@@ -195,8 +221,10 @@ namespace Unity.FPS.NewMode
                 }
                 yield return null;
             }
+            cc.Move(World(new Vector2(D, 0f), 0f) - transform.position + Vector3.down * 0.1f * S);
             BodyLean = 0f;
             OverridesMotion = false;
+            m_Player.AddMomentum(m_Frame * Vector3.forward * 1.2f * S);
         }
 
         IEnumerator SpinFor(float time, int turns)
@@ -210,6 +238,27 @@ namespace Unity.FPS.NewMode
             }
             transform.rotation = start;
             OverridesMotion = false;
+        }
+
+        /// <summary>짧고 빠른 돌진으로 to까지 (ease-out) — 순간이동처럼 툭 끊기지 않게</summary>
+        IEnumerator DashTo(Vector3 to, float time)
+        {
+            to = SafeGround(to);
+            CharacterController cc = m_Player.Controller;
+            Vector3 from = transform.position;
+            bool prev = OverridesMotion;
+            OverridesMotion = true;
+            for (float t = 0f; t < time; t += Time.deltaTime)
+            {
+                float u = 1f - Mathf.Pow(1f - Mathf.Clamp01(t / time), 3f);
+                Vector3 want = Vector3.Lerp(from, to, u);
+                cc.enabled = false; // 몹 몸을 뚫고 지나갈 수 있게
+                transform.position = want;
+                cc.enabled = true;
+                yield return null;
+            }
+            Blink(to);
+            OverridesMotion = prev;
         }
 
         /// <summary>순간이동 (지형 위로)</summary>
@@ -248,7 +297,7 @@ namespace Unity.FPS.NewMode
         {
             var mouse = UnityEngine.InputSystem.Mouse.current;
             var pad = UnityEngine.InputSystem.Gamepad.current;
-            return (mouse != null && mouse.leftButton.isPressed) || (pad != null && pad.buttonWest.isPressed);
+            return (mouse != null && mouse.leftButton.isPressed) || (pad != null && pad.buttonWest.isPressed) || Unity.FPS.Gameplay.VirtualInput.IsHeld("attack");
         }
     }
 }

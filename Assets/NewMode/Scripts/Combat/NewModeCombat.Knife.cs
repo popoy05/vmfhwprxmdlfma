@@ -5,12 +5,15 @@ using UnityEngine;
 namespace Unity.FPS.NewMode
 {
     // 3. 번개 단검 — 기믹 "연쇄 번개 · 표식"
-    //  4번 맞힐 때마다 번개가 근처 적 3명에게 튄다. 돌진(Q)·오성 섬격(X)은 적에게 표식을 남기고, E로 표식을 한꺼번에 터뜨린다.
+    //  4번 맞힐 때마다 번개가 근처 적 3명에게 튄다.
+    //  [표식] Q 섬광 돌진·X 오성 섬격·평타 3단이 표식(분홍 불꽃)을 남긴다 (8초).
+    //  [폭발] E 뇌전 폭발이 표식을 터뜨려 ×3 + 연쇄 번개, C 천둥 난무는 표식 대상에게 ×2.
+    //  → Q로 줄을 그어 표식 → E로 한꺼번에 터뜨리는 것이 기본 연계.
     //  평타  번개 찌르기 4연속
     //  Q     섬광 돌진           앞으로 순간 돌진, 지나간 적에게 표식
     //  E     뇌전 폭발           표식이 있는 적 모두에게 하늘에서 벼락 (없으면 앞쪽 가까운 3명)
     //  X     오성 섬격           가까운 적 다섯 사이를 별 모양 {5/2} 순서로 순간이동하며 벤다
-    //  C     천둥 난무           2.4초 동안 주변 적에게 벼락이 쉬지 않고 떨어지고, 마지막에 큰 벼락
+    //  C     천둥 난무           주변 모든 적에게 벼락 3연타 + 큰 벼락 (0.4초에 몰아서)
     public partial class NewModeCombat
     {
         static readonly Color k_Pink = new Color(1f, 0.45f, 0.85f);
@@ -19,44 +22,58 @@ namespace Unity.FPS.NewMode
         WeaponDef KnifeWeapon() => new WeaponDef
         {
             GimmickName = "연쇄 번개",
-            GimmickInfo = "4번 맞힐 때마다 번개가 튄다 · Q/X 표식 → E로 폭발",
+            GimmickInfo = "Q·X·3단으로 표식 → E로 감전 폭발 ×3 · 4타마다 연쇄 번개",
+            BasicRange = 3f,
             Gimmick = () =>
             {
                 int marked = 0;
                 foreach (var d in TrainingDummy.All) if (d.Marked) marked++;
-                return $"{Bar((m_KnifeHits % 4) / 4f, 4)}  <size=80%>연쇄까지 {4 - m_KnifeHits % 4}타</size>    표식 <b>{marked}</b>";
+                return $"{Bar((m_KnifeHits % 4) / 4f, 4)}  <size=80%>연쇄까지 {4 - m_KnifeHits % 4}타</size>    표식 <b>{marked}</b>  <size=80%><color=#FFFFFFAA>Q로 표식 → E로 폭발 ×3</color></size>";
             },
             HitMultiplier = d =>
             {
                 m_KnifeHits++;
-                if (m_KnifeHits % 4 == 0) StartCoroutine(Chain(d, 3, 22f, 6f * S));
+                if (m_KnifeHits % 4 == 0) StartCoroutine(Chain(d, 3, 28f, 6f * S));
                 return 1f;
             },
-            Basic = new SkillDef { Key = "좌클릭", Name = "번개 찌르기", Formula = "y = 0,  0 ≤ x ≤ L", Run = KnifeBasic },
+            Basic = new SkillDef { Key = "좌클릭", Name = "번개 찌르기", Desc = "3단: 찌르기 → 찌르기 → X자 베기(표식). 4번 맞힐 때마다 연쇄 번개", Formula = "y = 0,  0 ≤ x ≤ L", Run = KnifeBasic },
             Skills = new[]
             {
-                new SkillDef { Key = "Q", Name = "섬광 돌진", Formula = "P(t) = P₀ + t·v", Cooldown = 3f, Run = KnifeDash,
+                new SkillDef { Key = "Q", Name = "섬광 돌진", Desc = "앞으로 순간 돌진, 지나간 적에게 번개 표식", Formula = "P(t) = P₀ + t·v", Cooldown = 3f, Run = KnifeDash,
                     Detail = () => $"P(t) = P₀ + t·v,   0 ≤ t ≤ {N(6.5f * S)}" },
-                new SkillDef { Key = "E", Name = "뇌전 폭발", Formula = "벼락 y = h − ½gt²", Cooldown = 6f, Run = KnifeDetonate,
+                new SkillDef { Key = "E", Name = "뇌전 폭발", Desc = "표식이 있는 적 모두에게 벼락 — 감전 폭발 ×3 + 연쇄 (없으면 앞쪽 3명)", Formula = "벼락 y = h − ½gt²", Cooldown = 6f, Run = KnifeDetonate,
                     Detail = () => "표식 n개 → 벼락 n번" },
-                new SkillDef { Key = "X", Name = "오성 섬격", Formula = "{5/2} 별 다각형", Cooldown = 8f, Run = KnifeStar,
+                new SkillDef { Key = "X", Name = "오성 섬격", Desc = "가까운 적 다섯 사이를 별 모양으로 순간이동하며 벰", Formula = "{5/2} 별 다각형", Cooldown = 8f, Run = KnifeStar,
                     Detail = () => "순서: 0 → 2 → 4 → 1 → 3 → 0  (2칸씩 건너뛰기)" },
-                new SkillDef { Key = "C", Name = "천둥 난무", Formula = "tₙ = 0.1n", Cooldown = 15f, Run = KnifeStorm,
-                    Detail = () => $"0.1초마다 벼락,   반경 {N(10f * S)}" },
+                new SkillDef { Key = "C", Name = "천둥 난무", Desc = "주변 모든 적에게 벼락 3연타 + 큰 벼락 (0.4초) — 표식 대상 ×2", Formula = "tₙ = 0.08n", Cooldown = 15f, Run = KnifeStorm,
+                    Detail = () => $"벼락 3연타 (0.08초 간격),   반경 {N(10f * S)}" },
             },
         };
 
-        IEnumerator KnifeBasic() => Combo(4, step =>
+        // 평타 3단: 1단 찌르기 → 2단 반대 손 찌르기 → 3단 X자 베기 (앞으로 파고들며)
+        IEnumerator KnifeBasic() => Combo(3, step =>
         {
-            float L = 1.9f * S;
-            float side = step % 2 == 1 ? -0.18f : 0.18f;
-            BodyTwist = step % 2 == 1 ? 15f : -15f;
-            System.Func<float, Vector3> stab = u => Vector3.Slerp(new Vector3(side + 0.35f, 0.05f, -0.25f), new Vector3(side * 0.3f, -0.02f, 1f), Mathf.Clamp01(u)).normalized;
-            return Swing(stab, Vector3.up, 0.04f, 0.07f, 0.05f, 0.6f, () =>
+            float L = 3f * S;
+            if (step < 2)
             {
-                Fx.Play("Electro slash", World(new Vector2(L * 0.6f, 0f), 1f * S), Facing(90f), 0.18f * S, 0.1f, false);
-                HitWhere(p => GeoFunctions.DistanceToSegment(p, Vector2.zero, new Vector2(L, 0f)) <= 0.6f * S, step == 3 ? 24f : 12f, step == 3, "Electro hit");
-            }, 1f, 0.25f);
+                float side = step == 1 ? -0.18f : 0.18f;
+                BodyTwist = step == 1 ? 15f : -15f;
+                System.Func<float, Vector3> stab = u => Vector3.Slerp(new Vector3(side + 0.35f, 0.05f, -0.25f), new Vector3(side * 0.3f, -0.02f, 1f), Mathf.Clamp01(u)).normalized;
+                return Swing(stab, Vector3.up, 0.04f, 0.07f, 0.06f, 0.6f, () =>
+                    HitWhere(p => GeoFunctions.DistanceToSegment(p, Vector2.zero, new Vector2(L, 0f)) <= 0.65f * S, 12f, false, "Electro hit"), 1f, 0.3f);
+            }
+            BodyTwist = 0f;
+            return Swing(HorizontalArc(-75f, 75f, 0.15f), Vector3.up, 0.06f, 0.1f, 0.12f, 0.5f, () =>
+            {
+                Fx.Play("Electro slash", World(new Vector2(L * 0.6f, 0f), 1f * S), Facing(45f), 0.25f * S, 0.1f, false);
+                Fx.Play("Electro slash", World(new Vector2(L * 0.6f, 0f), 1f * S), Facing(-45f), 0.25f * S, 0.1f, false);
+                foreach (var d in Targets())
+                {
+                    if (!GeoFunctions.InSector(LocalNear(d), L * 1.2f, 75f)) continue;
+                    Damage(d, 26f, true, "Electro hit");
+                    d.Mark(8f);
+                }
+            }, 1f, 0.8f);
         });
 
         // Q: 앞으로 순간 돌진 — 지나간 선분 위의 적을 베고 표식
@@ -70,18 +87,28 @@ namespace Unity.FPS.NewMode
             OverridesMotion = true;
             CharacterController cc = m_Player.Controller;
             Vector3 start = transform.position;
-            for (float t = 0f; t < 0.14f; t += Time.deltaTime)
+            const float time = 0.17f;
+            float done = 0f;
+            Vector3 fwd = m_Frame * Vector3.forward;
+            for (float t = 0f; t < time; t += Time.deltaTime)
             {
-                cc.Move(World(new Vector2(t / 0.14f * L, 0f)) - transform.position + Vector3.down * 0.05f * S);
+                // x(u) = L·(1 − (1 − u)³): 처음에 가장 빠르고 끝에서 부드럽게 멈춤
+                float u = Mathf.Clamp01(t / time);
+                float want = L * (1f - Mathf.Pow(1f - u, 3f));
+                cc.Move(fwd * (want - done) + Vector3.down * 0.05f * S);
+                done = want;
+                BodyLean = Mathf.Lerp(28f, 8f, u);
                 yield return null;
             }
+            cc.Move(fwd * (L - done));
             OverridesMotion = false;
+            m_Player.AddMomentum(fwd * 2f * S);
             Bolt(start + Vector3.up * 0.9f * S, transform.position + Vector3.up * 0.9f * S, k_Pink, 0.05f, 0.3f);
             Vector2 end = Local(transform.position);
             foreach (var d in Targets())
             {
                 if (GeoFunctions.DistanceToSegment(Local(d.transform.position), Vector2.zero, end) > 0.9f * S) continue;
-                Damage(d, 36f, true, "Electro hit");
+                Damage(d, 46f, true, "Electro hit");
                 d.Mark(8f);
             }
             BodyLean = 0f;
@@ -106,9 +133,13 @@ namespace Unity.FPS.NewMode
                 Fx.Play("Electro slash", d.Center, Quaternion.LookRotation(Vector3.down), 0.4f * S, 0.15f, false);
                 bool marked = d.Marked;
                 d.ClearMark();
-                m_HitTag = null;
-                Damage(d, marked ? 60f : 36f, true, "Electro hit");
-                if (marked) StartCoroutine(Chain(d, 2, 20f, 5f * S));
+                if (marked)
+                {
+                    DamageBonus(d, 40f, true, "Electro hit", 3f, "감전 폭발 ×3!");
+                    Fx.Play("Sparks explode pink", d.Center, Quaternion.identity, 0.6f * S, 0.2f, false);
+                    StartCoroutine(Chain(d, 2, 20f, 5f * S));
+                }
+                else Damage(d, 46f, true, "Electro hit");
                 m_Player.Shake(0.06f, 0.12f);
                 yield return new WaitForSeconds(0.07f);
             }
@@ -141,7 +172,7 @@ namespace Unity.FPS.NewMode
                 if (!d || !d.Alive) continue;
                 Vector3 side = Quaternion.Euler(0f, 90f, 0f) * (d.transform.position - centroid).normalized;
                 Vector3 to = d.transform.position + (d.transform.position - centroid).normalized * 0.9f * S + side * 0.3f * S;
-                Blink(to);
+                yield return DashTo(to, 0.05f);
                 FaceTo(d.transform.position);
                 SetFrame();
                 Bolt(prev, transform.position + Vector3.up * 0.9f * S, k_Pink, 0.05f, 0.5f);
@@ -149,11 +180,11 @@ namespace Unity.FPS.NewMode
                 Pose(new Vector3(-0.6f, 0f, 0.8f), Vector3.up);
                 yield return Swing(HorizontalArc(-70f, 70f), Vector3.up, 0.02f, 0.07f, 0.02f, 0.5f, () =>
                 {
-                    Damage(d, 34f, true, "Electro hit");
+                    Damage(d, 44f, true, "Electro hit");
                     d.Mark(8f);
                 }, 1f, 0f);
             }
-            Blink(home);
+            yield return DashTo(home, 0.08f);
             Bolt(prev, home + Vector3.up * 0.9f * S, k_Pink, 0.05f, 0.5f);
             transform.rotation = m_Frame;
             OverridesMotion = false;
@@ -166,30 +197,31 @@ namespace Unity.FPS.NewMode
             float R = 10f * S;
             Pose(new Vector3(0.1f, 1f, 0.15f), Vector3.forward, 1f);
             BodyLean = -12f;
-            GameObject aura = Fx.Play("Lightning aura", transform.position, Quaternion.identity, 0.7f * S, 2.4f, false, transform);
+            GameObject aura = Fx.Play("Lightning aura", transform.position, Quaternion.identity, 0.7f * S, 0.5f, false, transform);
             var targets = Nearest(transform.position, R, 20);
-            int i = 0;
-            for (float t = 0f; t < 2.4f; t += 0.1f)
+            // 딜 압축: 주변 모든 적에게 동시에 벼락 3연타 (0.08초 간격) — 예전엔 한 명씩 1.2초 동안 돌아가며 때림
+            for (int wave = 0; wave < 3; wave++)
             {
-                if (targets.Count > 0)
+                foreach (var d in targets)
                 {
-                    TrainingDummy d = targets[i++ % targets.Count];
-                    if (d && d.Alive)
+                    if (!d || !d.Alive) continue;
+                    Vector3 sky = d.transform.position + Vector3.up * 8f * S + Random.insideUnitSphere * 1.5f * S;
+                    Bolt(sky, d.transform.position, Color.Lerp(k_Pink, Color.white, 0.4f + 0.2f * wave), 0.1f + 0.03f * wave, 0.2f);
+                    if (wave == 0) LightFlash.Spawn(d.Center + Vector3.up * 0.8f * S, k_Pink, 5f, 3f * S, 0.2f);
+                    if (wave == 2) Fx.Play("Electro hit", d.Center, Quaternion.identity, 0.55f * S, 0.1f, false);
+                    if (d.Marked) DamageBonus(d, 90f, false, null, 2f, "표식 ×2");
+                    else Damage(d, 90f, false, null);
+                }
+                if (targets.Count == 0)
+                    for (int k = 0; k < 4; k++)
                     {
-                        Vector3 sky = d.transform.position + Vector3.up * 8f * S + Random.insideUnitSphere * 1.5f * S;
-                        Bolt(sky, d.transform.position, Color.Lerp(k_Pink, Color.white, 0.5f), 0.1f, 0.2f);
-                        if (i % 3 == 0) Fx.Play("Electro hit", d.Center, Quaternion.identity, 0.5f * S, 0.1f, false);
-                        Damage(d, 14f, false, null);
+                        Vector2 r = Random.insideUnitCircle * R * 0.6f;
+                        Vector3 w = transform.position + new Vector3(r.x, 0f, r.y);
+                        Bolt(w + Vector3.up * 8f * S, w, Color.Lerp(k_Pink, Color.white, 0.5f), 0.1f, 0.2f);
                     }
-                }
-                else
-                {
-                    Vector2 r = Random.insideUnitCircle * R;
-                    Vector3 w = transform.position + new Vector3(r.x, 0f, r.y);
-                    Bolt(w + Vector3.up * 8f * S, w, Color.Lerp(k_Pink, Color.white, 0.5f), 0.1f, 0.2f);
-                }
-                if (i % 4 == 0) m_Player.Shake(0.04f, 0.1f);
-                yield return new WaitForSeconds(0.1f);
+                PostFx.Pulse(0.4f, k_Pink);
+                m_Player.Shake(0.06f + 0.03f * wave, 0.1f);
+                yield return new WaitForSeconds(0.08f);
             }
 
             Pose(new Vector3(0.05f, -0.8f, 0.6f), Vector3.right, 1f);
@@ -202,11 +234,12 @@ namespace Unity.FPS.NewMode
                 Bolt(p + Vector3.up * 9f * S, p, Color.white, 0.14f, 0.35f);
             }
             Fx.Play("Electro slash", transform.position + Vector3.up * 0.5f * S, Quaternion.LookRotation(Vector3.down), 0.9f * S, 0.25f, false);
+            UltBurst(transform.position, 6f * S, "Lightning aura", 0.8f);
             Fx.Play("Plexus AoE", transform.position, Quaternion.identity, 0.5f * S, 0.3f, false);
             m_Player.Shake(0.28f, 0.5f);
-            foreach (var d in Nearest(transform.position, 4.5f * S, 99)) Damage(d, 80f, true, "Electro hit");
+            foreach (var d in targets) if (d && d.Alive) Damage(d, 130f, true, "Electro hit"); // 마무리 큰 벼락: 범위 안 모두
             if (aura) aura.transform.SetParent(null, true);
-            yield return new WaitForSeconds(0.3f);
+            yield return new WaitForSeconds(0.1f);
             Crouch = 0f;
             BodyLean = 0f;
         }

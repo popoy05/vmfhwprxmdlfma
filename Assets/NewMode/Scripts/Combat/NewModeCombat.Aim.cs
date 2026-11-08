@@ -18,6 +18,12 @@ namespace Unity.FPS.NewMode
         {
             Vector3 flat = m_Frame * Vector3.forward;
             if (!m_Player || !m_Player.Camera) return flat;
+            if (!m_Player.Aiming)
+            {
+                // 조준하지 않을 때: 캐릭터가 보는 쪽 (앞쪽 가까운 적이 있으면 그 몸통으로)
+                var front = InFront(14f * S, 25f, 1);
+                return front.Count > 0 ? (front[0].Center - from).normalized : flat;
+            }
 
             Ray ray = m_Player.AimRay;
             float max = 150f * S;
@@ -40,12 +46,11 @@ namespace Unity.FPS.NewMode
             foreach (var d in TrainingDummy.All)
             {
                 if (!d.Alive) continue;
-                Vector3 to = d.Center - ray.origin;
-                float a = Vector3.Dot(to, ray.direction);
+                // 몸 캡슐(크기 그대로)에 닿는지 — 거인·보스는 크게 맞는다
+                if (!d.RayHitsBody(ray, 0.05f * d.Scale, out float a)) continue;
                 if (a <= 0f || a >= along) continue;
-                Vector3 side = to - ray.direction * a;
-                side.y *= 0.5f; // 위아래는 넉넉하게 (몸통이 길쭉함)
-                if (side.magnitude <= 0.45f * d.Scale) { best = d; along = a; }
+                best = d;
+                along = a;
             }
             return best;
         }
@@ -85,7 +90,8 @@ namespace Unity.FPS.NewMode
             if (!m_Canvas) return;
             if (!m_Crosshair) BuildCrosshair();
 
-            bool gun = m_Weapon != null && m_Weapon.Kind == WeaponKind.Gun && !m_InCutscene;
+            // 조준선은 조준(우클릭)할 때만
+            bool gun = m_Weapon != null && m_Weapon.Kind == WeaponKind.Gun && !m_InCutscene && m_Player.Aiming;
             m_CrossGroup.alpha = Mathf.MoveTowards(m_CrossGroup.alpha, gun ? 1f : 0f, Time.unscaledDeltaTime * 8f);
             if (m_CrossGroup.alpha <= 0f) return;
 

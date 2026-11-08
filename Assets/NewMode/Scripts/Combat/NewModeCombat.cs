@@ -11,8 +11,10 @@ using UnityEngine.UI;
 namespace Unity.FPS.NewMode
 {
     // 새 모드 전투 (뼈대).
-    //  좌클릭 평타 · Q/E/X/C 스킬 · 1~7(또는 Tab) 무기 바꾸기
-    //  무기마다 스킬 5개 (평타 + 4) — 무기별 스킬은 NewModeCombat.<무기>.cs
+    //  좌클릭 평타(1·2·3단) · Q/E/X/C 스킬 · Tab 캐릭터 정보
+    //  공격 방향: 카메라가 아니라 캐릭터 기준 — 이동 키를 누르고 있으면 그쪽, 아니면 보고 있는 쪽,
+    //            가까운 적이 앞쪽에 있으면 그 적에게 살짝 맞춰 돈다 (총은 조준 중일 때만 화면 가운데로)
+    //  직업마다 스킬 5개 (평타 + 4) — 직업별 스킬은 NewModeCombat.<무기>.cs
     //  모든 공격은 GeoFunctions의 함수로 모양이 정해지고, 그래프가 땅 위에 그려지며,
     //  에셋 이펙트(Hovl·Eric)를 그대로 소환하고 그 옆에 FxFormula가 분석한 식을 작게 띄운다.
     // 거리·크기는 모두 캐릭터 Scale(S)에 비례한다.
@@ -26,6 +28,12 @@ namespace Unity.FPS.NewMode
         int m_Combo;
         float m_ComboWindow, m_FireTimer;
         bool m_Buffered;
+        bool m_CurrentIsBasic;
+        bool m_Headshot;      // 이번 탄이 머리에 맞았는지 (Shoot이 정함)
+
+        WeaponCatalog.ClassStats Stats => WeaponCatalog.All[Mathf.Clamp(m_Weapon != null ? m_Weapon.Index : 0, 0, WeaponCatalog.All.Length - 1)].Stats;
+        /// <summary>HUD가 읽는 지금 평타 단계 (0이면 쉬는 중, 1·2·3)</summary>
+        public int ComboStep => m_Combo;
 
         // 스킬 좌표계 원점·방향 (스킬을 쓴 순간의 캐릭터 기준: x 앞, y 오른쪽)
         Vector3 m_Origin;
@@ -42,6 +50,7 @@ namespace Unity.FPS.NewMode
         public float BodyLean { get; private set; }
         public float Crouch { get; private set; }
         public float Recoil { get; private set; }
+        public Vector3? LookTarget { get; private set; }  // 컷신에서 고개를 돌릴 곳
         string m_HitTag; // 다음 피해 숫자 위에 붙일 말 (기믹이 정함)
 
         // ---- NewModePlayer가 읽는 값
@@ -49,20 +58,24 @@ namespace Unity.FPS.NewMode
         public bool OverridesMotion { get; private set; }
 
         float S => m_Player ? m_Player.Scale : 1f;
+        public WeaponDef CurrentWeapon => m_Weapon;
+        public NewModePlayer PlayerRef => m_Player;
         Color C => m_Weapon != null ? m_Weapon.Color : Color.white;
 
         void Start()
         {
             m_Player = GetComponent<NewModePlayer>();
+            PostFx.Init(); // 시작부터 후처리(톤매핑 등) 적용 — 예전엔 처음 때릴 때 켜져서 그 전엔 밝았음
             m_Font = MathModeAssets.Load() ? MathModeAssets.Load().Font : null;
 
             m_Weapons.Add(SwordWeapon());
             m_Weapons.Add(AxeWeapon());
             m_Weapons.Add(KnifeWeapon());
-            m_Weapons.Add(BatWeapon());
             m_Weapons.Add(PistolWeapon());
-            m_Weapons.Add(ShotgunWeapon());
-            m_Weapons.Add(SniperWeapon());
+            // 전체 버프: 모든 스킬 재사용 대기 ×0.85
+            foreach (var weapon in m_Weapons)
+                foreach (var skill in weapon.Skills)
+                    skill.Cooldown = Mathf.Round(skill.Cooldown * 0.85f * 10f) / 10f;
             for (int i = 0; i < m_Weapons.Count; i++)
             {
                 WeaponCatalog.Info info = WeaponCatalog.All[i];
@@ -116,11 +129,14 @@ namespace Unity.FPS.NewMode
 
             // 직업(무기)은 캐릭터 꾸미기에서 한 번 고르면 모험 중엔 바꿀 수 없다
 
-            bool pressed = (locked && mouse != null && mouse.leftButton.wasPressedThisFrame) || (pad != null && pad.buttonWest.wasPressedThisFrame);
-            bool held = (locked && mouse != null && mouse.leftButton.isPressed) || (pad != null && pad.buttonWest.isPressed);
+            bool pressed = (locked && mouse != null && mouse.leftButton.wasPressedThisFrame) || (pad != null && pad.buttonWest.wasPressedThisFrame)
+                           || Unity.FPS.Gameplay.VirtualInput.WasPressed("attack");
+            bool held = (locked && mouse != null && mouse.leftButton.isPressed) || (pad != null && pad.buttonWest.isPressed)
+                        || Unity.FPS.Gameplay.VirtualInput.IsHeld("attack");
 
             // 총: 우클릭(게임패드 왼쪽 트리거)을 누르고 있으면 조준
-            bool aimHeld = (locked && mouse != null && mouse.rightButton.isPressed) || (pad != null && pad.leftTrigger.isPressed);
+            bool aimHeld = (locked && mouse != null && mouse.rightButton.isPressed) || (pad != null && pad.leftTrigger.isPressed)
+                           || Unity.FPS.Gameplay.VirtualInput.IsHeld("aim");
             m_Player.Aiming = m_Weapon.Kind == WeaponKind.Gun && aimHeld && !m_InCutscene;
             UpdateCrosshair();
             if (m_Weapon.Kind == WeaponKind.Gun)
@@ -128,7 +144,7 @@ namespace Unity.FPS.NewMode
                 // 총: 누르고 있으면 연사
                 if (held && m_Current == null && m_FireTimer <= 0f)
                 {
-                    m_FireTimer = m_Weapon.FireInterval;
+                    m_FireTimer = m_Weapon.FireInterval / Stats.AttackSpeed;
                     StartAction(m_Weapon.Basic);
                     Punch(m_Weapon.Basic);
                 }
@@ -146,6 +162,8 @@ namespace Unity.FPS.NewMode
                 if (kb.xKey.wasPressedThisFrame) TryCast(2);
                 if (kb.cKey.wasPressedThisFrame) TryCast(3);
             }
+            for (int i = 0; i < 4; i++)
+                if (Unity.FPS.Gameplay.VirtualInput.WasPressed("skill" + i)) TryCast(i);
             if (pad != null)
             {
                 if (pad.leftShoulder.wasPressedThisFrame) TryCast(0);
@@ -159,6 +177,8 @@ namespace Unity.FPS.NewMode
                 m_ComboWindow -= Time.deltaTime;
                 if (m_ComboWindow <= 0f) m_Combo = 0;
             }
+
+            if ((kb != null && kb.tabKey.wasPressedThisFrame) || Unity.FPS.Gameplay.VirtualInput.WasPressed("sheet")) CharacterSheet.Open(this);
         }
 
         void Equip(int index, bool announce)
@@ -180,6 +200,8 @@ namespace Unity.FPS.NewMode
         void TryCast(int slot)
         {
             SkillDef skill = m_Weapon.Skills[slot];
+            // 평타 도중이면 평타를 끊고 바로 스킬 (조작이 뻑뻑하지 않게)
+            if (m_Current != null && m_CurrentIsBasic && skill.Remaining <= 0f) CancelAction();
             if (skill.Remaining > 0f || m_Current != null)
             {
                 if (skill.Slot) skill.Slot.DOShakeAnchorPos(0.25f, 8f, 20).SetLink(skill.Slot.gameObject); // 아직 못 씀
@@ -192,21 +214,124 @@ namespace Unity.FPS.NewMode
             if (slot == 3)
             {
                 // C = 궁극기: 컷신 → 스킬
-                m_Player.FaceCameraDirection();
+                FaceAttack(12f);
                 SetFrame();
+                m_CurrentIsBasic = false;
                 m_Current = StartCoroutine(Wrap(Ultimate(skill)));
                 return;
             }
             StartAction(skill);
             CastFlair(skill);
+            PostFx.Pulse(0.35f, C);
             ShowBanner($"<b>{skill.Name}</b>\n<size=42%><color=#BFE6FF>{(skill.Detail != null ? skill.Detail() : skill.Formula)}</color></size>");
         }
 
         void StartAction(SkillDef skill)
         {
-            m_Player.FaceCameraDirection();
+            m_CurrentIsBasic = skill == m_Weapon.Basic;
+            FaceAttack(m_Weapon.Kind == WeaponKind.Gun ? 14f : k_MeleeLock);
             SetFrame();
             m_Current = StartCoroutine(Wrap(skill.Run()));
+        }
+
+        void CancelAction()
+        {
+            if (m_Current != null) StopCoroutine(m_Current);
+            m_Current = null;
+            SwordActive = false;
+            TrailOn = false;
+            LocksMovement = false;
+            OverridesMotion = false;
+            BodyTwist = BodyLean = Crouch = 0f;
+            m_Combo = 0;
+        }
+
+        /// <summary>
+        /// 공격할 방향으로 몸을 돌린다 — 카메라가 아니라 캐릭터 기준:
+        ///  타겟(앞쪽 ±100° 안, range 안, 벽에 가리지 않은 적 중 방향·거리가 가장 잘 맞는 적)이 있으면 그 적을,
+        ///  없으면 캐릭터가 지금 보는 앞(이동 중이면 가는 방향)을 공격한다. 총은 우클릭 조준 중일 때만 화면 가운데.
+        /// </summary>
+        void FaceAttack(float range)
+        {
+            if (m_Weapon.Kind == WeaponKind.Gun && m_Player.Aiming)
+            {
+                m_Player.FaceCameraDirection();
+                return;
+            }
+            TrainingDummy best = FindTarget(range);
+            Vector3 dir = transform.forward;
+            if (best)
+            {
+                Vector3 to = best.transform.position - transform.position;
+                to.y = 0f;
+                if (to.sqrMagnitude > 0.0001f) dir = to.normalized;
+            }
+            else
+            {
+                Vector3 input = m_Player.MoveInputWorld;
+                if (input.sqrMagnitude > 0.01f) dir = input.normalized; // 막 방향을 튼 순간에도 가는 쪽으로
+            }
+            dir.y = 0f;
+            if (dir.sqrMagnitude > 0.0001f) transform.rotation = Quaternion.LookRotation(dir);
+        }
+
+        /// <summary>지금 공격하면 맞출 적 (없으면 null) — HUD 타겟 표시에도 쓴다</summary>
+        TrainingDummy FindTarget(float range)
+        {
+            Vector3 face = transform.forward;
+            Vector3 input = m_Player.MoveInputWorld;
+            if (input.sqrMagnitude > 0.01f) face = input.normalized;
+            face.y = 0f;
+
+            TrainingDummy best = null;
+            float bestScore = float.MaxValue;
+            for (int pass = 0; pass < 2 && !best; pass++) // 적대 몹 먼저, 없으면 훈련장 허수아비
+            {
+                foreach (var d in Targets())
+                {
+                    if (pass == 0 && !d.Hostile) continue;
+                    Vector3 to = d.transform.position - transform.position;
+                    if (Mathf.Abs(to.y) > 2.5f * S) continue;
+                    to.y = 0f;
+                    float dist = Mathf.Max(0f, to.magnitude - d.Radius);
+                    if (dist > range * S) continue;
+                    float angle = to.sqrMagnitude > 0.0001f ? Vector3.Angle(face, to) : 0f;
+                    // 아주 가까우면(1.2) 어느 쪽이든, 아니면 앞쪽 ±100°
+                    if (angle > 100f && dist > 1.2f * S) continue;
+                    if (Physics.Linecast(Chest, d.Center, ~(1 << 2), QueryTriggerInteraction.Ignore)) continue;
+                    float score = dist / Mathf.Max(0.01f, range * S) + angle / 180f * 0.8f;
+                    if (score < bestScore) { bestScore = score; best = d; }
+                }
+            }
+            return best;
+        }
+
+        const float k_MeleeLock = 7f; // 근접: 이 거리 안의 적을 겨누고 파고든다
+
+        /// <summary>평타 파고들기: 적이 평타 거리보다 멀면 최대 4.5까지 미끄러지듯 다가간다 (ease-out)</summary>
+        IEnumerator StepIn(TrainingDummy t, float keep)
+        {
+            CharacterController cc = m_Player.Controller;
+            Vector3 to = t.transform.position - transform.position;
+            to.y = 0f;
+            float gap = to.magnitude - t.Radius - keep;
+            if (gap <= 0.05f * S || !cc || !cc.enabled) yield break;
+            gap = Mathf.Min(gap, 4.5f * S);
+            Vector3 dir = to.normalized;
+            transform.rotation = Quaternion.LookRotation(dir);
+            float time = Mathf.Lerp(0.07f, 0.17f, gap / (4.5f * S)) / Mathf.Max(0.5f, Stats.AttackSpeed);
+            float done = 0f;
+            TrailOn = true;
+            BodyLean = 14f;
+            for (float e = 0f; e < time; e += Time.deltaTime)
+            {
+                float want = gap * GeoFunctions.EaseOutCubic(Mathf.Clamp01(e / time));
+                cc.Move(dir * (want - done) + Vector3.down * 0.03f * S);
+                done = want;
+                yield return null;
+            }
+            cc.Move(dir * (gap - done));
+            BodyLean = 0f;
         }
 
         void SetFrame()
@@ -228,22 +353,28 @@ namespace Unity.FPS.NewMode
             m_Current = null;
         }
 
-        // 평타 연속기: hit(단계)를 차례로, 휘두르는 중에 다시 누르면 이어진다
+        // 평타 1·2·3단: 휘두르는 중에 누르거나, 끝난 뒤 0.6초 안에 다시 누르면 다음 단으로. 3단 뒤엔 처음부터.
         IEnumerator Combo(int count, Func<int, IEnumerator> hit)
         {
-            m_Combo = 0;
+            if (m_ComboWindow <= 0f || m_Combo >= count) m_Combo = 0;
+            m_ComboWindow = 0f;
             while (true)
             {
                 m_Buffered = false;
-                m_Player.FaceCameraDirection();
+                FaceAttack(m_Weapon.Kind == WeaponKind.Gun ? 14f : k_MeleeLock);
+                if (m_Weapon.Kind != WeaponKind.Gun)
+                {
+                    TrainingDummy target = FindTarget(k_MeleeLock);
+                    if (target) yield return StepIn(target, m_Weapon.BasicRange * S * 0.55f);
+                }
                 SetFrame();
                 int step = m_Combo % count;
                 m_Combo++;
                 yield return hit(step);
-                if (!m_Buffered) break;
+                if (!m_Buffered || m_Combo >= count) break;
             }
-            m_ComboWindow = 0.45f;
-            if (m_Combo >= count) m_Combo = 0;
+            m_ComboWindow = 0.6f;
+            if (m_Combo >= count) { m_Combo = 0; m_ComboWindow = 0f; }
         }
 
         // ================================================================== 좌표·그리기 도구
@@ -257,6 +388,18 @@ namespace Unity.FPS.NewMode
         }
 
         Vector3 OnGround(Vector2 p) { Vector3 w = World(p); w.y = GeoFx.GroundY(w, S); return w; }
+
+        /// <summary>
+        /// 몹 몸통(원기둥)에서 나(원점)에게 가장 가까운 점 — 큰 몹(거인·보스)은 몸이 두꺼워서
+        /// 중심이 범위 밖이어도 몸이 닿으면 맞는다
+        /// </summary>
+        Vector2 LocalNear(TrainingDummy d)
+        {
+            Vector2 p = Local(d.transform.position);
+            float m = p.magnitude;
+            if (m < 0.0001f) return p;
+            return p * Mathf.Max(0f, m - d.Radius) / m;
+        }
 
         Quaternion Facing(float degrees = 0f) => m_Frame * Quaternion.Euler(0f, degrees, 0f);
 
@@ -277,11 +420,17 @@ namespace Unity.FPS.NewMode
 
         void Damage(TrainingDummy d, float amount, bool big, string hitFx = null, float fxSize = 0.45f)
         {
-            // 데미지를 크게: 기본 배율 × 랜덤, 큰 공격은 치명타 확률 ↑ (궁극기 중엔 무조건 치명타)
+            // 피해 = 기본 × 직업 공격력 × 랜덤 × (치명타면 직업 치명 피해) × 기믹 × 헤드샷 × 궁극기 × 문제 보상
+            // 치명타 확률 = 직업 치명 확률 (+15% 큰 공격), 궁극기 중엔 무조건
             m_HitTag = null;
-            float gimmick = m_Weapon.HitMultiplier != null ? m_Weapon.HitMultiplier(d) : 1f;
-            bool crit = m_Ultimate || gimmick > 1.01f || UnityEngine.Random.value < (big ? 0.45f : 0.15f);
-            float dmg = amount * k_DamageScale * UnityEngine.Random.Range(0.85f, 1.15f) * (crit ? 1.9f : 1f) * gimmick
+            var st = Stats;
+            float gimmick = 1f;
+            if (m_Bonus > 0f) { gimmick = m_Bonus; m_HitTag = m_BonusTag; } // 연계 피해 (기믹 대신)
+            else if (m_Weapon.HitMultiplier != null) gimmick = m_Weapon.HitMultiplier(d);
+            float head = 1f;
+            if (m_Headshot) { head = st.Headshot; m_HitTag ??= "헤드샷!"; }
+            bool crit = m_Ultimate || gimmick > 1.01f || UnityEngine.Random.value < st.Crit + (big ? 0.15f : 0f);
+            float dmg = amount * k_DamageScale * st.Attack * UnityEngine.Random.Range(0.9f, 1.1f) * (crit ? st.CritDamage : 1f) * gimmick * head
                         * (m_Ultimate ? 2f : 1f) * (PowerBuff ? 2f : 1f);
             d.Hit(dmg, transform.position, big, crit, m_HitTag);
             m_HitTag = null;
@@ -289,12 +438,30 @@ namespace Unity.FPS.NewMode
             OnImpact(d, big, crit);
         }
 
+        // 연계 피해: 상태(빙결·균열·표식·약점)를 터뜨리는 스킬이 쓴다 — 배율과 말을 붙여 한 번 때림
+        float m_Bonus;
+        string m_BonusTag;
+        void DamageBonus(TrainingDummy d, float amount, bool big, string hitFx, float bonus, string tag)
+        {
+            m_Bonus = bonus;
+            m_BonusTag = tag;
+            Damage(d, amount, big, hitFx, 0.6f);
+            m_Bonus = 0f;
+            m_BonusTag = null;
+            if (bonus >= 2.5f)
+            {
+                PostFx.Pulse(0.6f, C);
+                RingWave.Spawn(d.transform.position + Vector3.up * 0.05f * S, 1.6f * S * d.Scale, new Color(1f, 1f, 1f, 0.8f), 0.35f);
+                LightFlash.Spawn(d.Center, C, 6f, 3f * S, 0.2f);
+            }
+        }
+
         /// <summary>스킬 좌표계에서 inside(p)가 참인 허수아비를 모두 때린다</summary>
         int HitWhere(Func<Vector2, bool> inside, float amount, bool big, string hitFx = null)
         {
             int count = 0;
             foreach (var d in Targets())
-                if (inside(Local(d.transform.position))) { Damage(d, amount, big, hitFx); count++; }
+                if (inside(LocalNear(d))) { Damage(d, amount, big, hitFx); count++; }
             return count;
         }
 
@@ -304,8 +471,9 @@ namespace Unity.FPS.NewMode
             foreach (var d in Targets())
             {
                 Vector3 diff = d.transform.position - world;
+                if (Mathf.Abs(diff.y) > d.Height + 1f * S) continue;
                 diff.y = 0f;
-                if (diff.magnitude <= radius) { Damage(d, amount, big, hitFx); count++; }
+                if (diff.magnitude <= radius + d.Radius) { Damage(d, amount, big, hitFx); count++; }
             }
             return count;
         }
@@ -340,9 +508,10 @@ namespace Unity.FPS.NewMode
                 {
                     if (done.Contains(d)) continue;
                     Vector2 p = Local(d.transform.position);
+                    float rr = radius + d.Radius;
                     for (int i = 0; i <= last; i++)
                     {
-                        if ((pts[i] - p).sqrMagnitude <= radius * radius)
+                        if ((pts[i] - p).sqrMagnitude <= rr * rr)
                         {
                             done.Add(d);
                             Damage(d, amount, big, hitFx);
@@ -361,6 +530,11 @@ namespace Unity.FPS.NewMode
         /// <summary>칼날 방향 함수 dir(u)를 따라 휘두르고, hitAt에 onHit을 한 번 부른다</summary>
         IEnumerator Swing(Func<float, Vector3> dir, Vector3 up, float windup, float duration, float recover, float hitAt, Action onHit, float reach = 1f, float lunge = 0.35f)
         {
+            // 직업 공격 속도만큼 빠르게
+            float speed = Mathf.Max(0.3f, Stats.AttackSpeed);
+            windup /= speed;
+            duration /= speed;
+            recover /= speed;
             BladeUpLocal = up;
             Reach = reach;
             bool vertical = Mathf.Abs(up.x) > 0.5f; // 세로 휘두르기 (내려찍기)
@@ -392,11 +566,11 @@ namespace Unity.FPS.NewMode
                     cc.Move(forward * (want - stepped) + Vector3.down * 0.02f * S);
                     stepped = want;
                 }
-                if (!hit && t / duration >= hitAt) { hit = true; onHit?.Invoke(); }
+                if (!hit && t / duration >= hitAt) { hit = true; SwingSlash(dir, vertical); onHit?.Invoke(); }
                 yield return null;
             }
             BladeDirLocal = dir(1f);
-            if (!hit) onHit?.Invoke();
+            if (!hit) { SwingSlash(dir, vertical); onHit?.Invoke(); }
 
             // 3) 마무리 동작: 조금 더 흘러갔다가(dir(1.1)) 천천히 돌아온다
             Vector3 end = dir(1.1f);
@@ -406,10 +580,25 @@ namespace Unity.FPS.NewMode
                 BladeDirLocal = Vector3.Slerp(dir(1f), end, GeoFunctions.EaseOutCubic(u)).normalized;
                 if (vertical) { BodyLean = Mathf.Lerp(24f, 8f, u); Crouch = 1f - u; }
                 if (u > 0.4f) TrailOn = false;
+                if (m_Buffered && u > 0.25f) break; // 다음 타를 눌렀으면 마무리 동작을 줄이고 바로 이어감
                 yield return null;
             }
             TrailOn = false;
             if (vertical) { BodyLean = 0f; Crouch = 0f; }
+        }
+
+        // 휘두르는 순간 칼날이 지나간 자리에 베기 이펙트 (직업 색) — 휘두른 면에 맞춰 기울임
+        void SwingSlash(Func<float, Vector3> dir, bool vertical)
+        {
+            string fx = Th.Slash;
+            if (string.IsNullOrEmpty(fx) || m_Weapon.Kind == WeaponKind.Gun) return;
+            Vector3 a = transform.TransformDirection(dir(0f)), b = transform.TransformDirection(dir(1f));
+            Vector3 normal = Vector3.Cross(a, b);
+            if (normal.sqrMagnitude < 0.0001f) normal = vertical ? transform.right : Vector3.up;
+            Vector3 mid = (a + b).normalized;
+            if (mid.sqrMagnitude < 0.01f) mid = transform.forward;
+            Vector3 pos = Chest + mid * 0.9f * S;
+            Fx.Play(fx, pos, Quaternion.LookRotation(transform.forward, normal.normalized), 0.3f * S, 0.12f, false);
         }
 
         // 수평 휘두르기: 칼 방향 = 부채꼴 P(θ) 방향 (θ: 앞에서 오른쪽으로 잰 각)
@@ -458,6 +647,10 @@ namespace Unity.FPS.NewMode
         /// 총알 하나: 총구에서 각도 degrees 방향으로 직선 y = (tanθ)x 를 따라 length만큼.
         /// pierce면 선 위의 모두를, 아니면 가장 가까운 하나를 맞힌다. 맞힌 곳(또는 끝점)을 돌려준다.
         /// </summary>
+        // 총알이 맞힌 적마다: m_ShotOverride가 true를 돌려주면 기본 피해 대신 그쪽이 처리, m_ShotHook은 맞힌 뒤 불림
+        Func<TrainingDummy, bool> m_ShotOverride;
+        Action<TrainingDummy> m_ShotHook;
+
         Vector3 Shoot(float degrees, float length, float corridor, float amount, bool big, string hitFx, bool pierce, Color color, float width = 0.05f)
         {
             Vector3 from = Muzzle;
@@ -477,12 +670,10 @@ namespace Unity.FPS.NewMode
             var hits = new List<(TrainingDummy d, float along)>();
             foreach (var d in Targets())
             {
-                Vector3 to = d.Center - from;
-                float along = Vector3.Dot(to, worldDir);
+                // 몸 = 발끝부터 머리까지의 캡슐 (거인·보스는 크고 두껍다)
+                if (!d.RayHitsBody(new Ray(from, worldDir), corridor, out float along)) continue;
                 if (along < 0f || along > reach) continue;
-                Vector3 side = to - worldDir * along;
-                side.y *= 0.5f; // 위아래는 넉넉하게
-                if (side.magnitude <= corridor) hits.Add((d, along));
+                hits.Add((d, along));
             }
             hits.Sort((a, b) => a.along.CompareTo(b.along));
 
@@ -490,11 +681,19 @@ namespace Unity.FPS.NewMode
             if (hits.Count > 0 && !pierce)
             {
                 end = from + worldDir * hits[0].along;
-                Damage(hits[0].d, amount, big, hitFx);
+                // 머리 명중 (조준 사격일수록 정확)
+                m_Headshot = hits[0].d.RayHitsHead(new Ray(from, worldDir), m_Player.Aiming ? 0.05f * S : 0f);
+                if (m_ShotOverride == null || !m_ShotOverride(hits[0].d)) Damage(hits[0].d, amount, big, hitFx);
+                m_ShotHook?.Invoke(hits[0].d);
+                m_Headshot = false;
             }
             else
             {
-                foreach (var h in hits) Damage(h.d, amount, big, hitFx);
+                foreach (var h in hits)
+                {
+                    if (m_ShotOverride == null || !m_ShotOverride(h.d)) Damage(h.d, amount, big, hitFx);
+                    m_ShotHook?.Invoke(h.d);
+                }
                 if (hitFx != null && hits.Count == 0) Fx.Play(hitFx, end, Quaternion.identity, 0.35f * S, 0.2f, false);
             }
 

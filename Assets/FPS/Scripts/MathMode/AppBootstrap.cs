@@ -74,14 +74,14 @@ namespace Unity.FPS.MathMode
 #endif
             Time.timeScale = 1f;
 
-            // 처음 켜졌을 때는 어떤 장면에서 시작했든(에디터에서 새 모드 맵·캐릭터 씬을 열고 플레이 등) 먼저 시작 화면으로 보낸다
-            if (!s_MenuShown && scene.name != MenuScene)
+            // 처음 켜졌을 때는 어떤 장면에서 시작했든 바로 새 모드의 기본 화면(캐릭터·직업 고르기)으로 간다.
+            // (이전 모드는 그 화면의 '모드 선택' 버튼으로)
+            if (!s_MenuShown)
             {
                 s_MenuShown = true;
                 ClassicMenu = false;
                 NewModeMapSelect = false;
-                SceneManager.LoadScene(MenuScene);
-                return;
+                if (scene.name != NewModeCharacterScene) { SceneManager.LoadScene(NewModeCharacterScene); return; }
             }
 
             switch (scene.name)

@@ -48,6 +48,13 @@ namespace Unity.FPS.NewMode
             cam.transform.position = k_CameraPosition;
             cam.transform.LookAt(k_CameraLookAt);
             cam.fieldOfView = 35f;
+            // 왼쪽 꾸미기 판과 오른쪽 직업 카드 사이(화면 가운데)에 캐릭터가 오도록 카메라를 옆으로 민다
+            {
+                Vector3 model = new Vector3(0f, 0.9f, 0f); // 받침대 위 캐릭터 (원점)
+                Vector3 vp = cam.WorldToViewportPoint(model);
+                float width = 2f * vp.z * Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad) * cam.aspect;
+                cam.transform.position += cam.transform.right * (vp.x - 0.5f) * width;
+            }
             cam.clearFlags = CameraClearFlags.SolidColor;
             cam.backgroundColor = new Color(0.55f, 0.72f, 0.9f);
 
@@ -100,6 +107,7 @@ namespace Unity.FPS.NewMode
             WeaponCatalog.Selected = (WeaponCatalog.Selected + direction + count) % count;
             if (m_Rig) m_Rig.Equip(WeaponCatalog.Selected);
             RefreshWeapon();
+            RefreshClassCard();
             UIAnim.Punch(m_WeaponValue.transform, 0.25f);
             m_Turntable.DOKill(true);
             m_Turntable.DOPunchScale(Vector3.one * 0.05f, 0.3f, 6, 0.5f).SetLink(m_Turntable.gameObject);
@@ -109,7 +117,7 @@ namespace Unity.FPS.NewMode
         {
             if (!m_WeaponValue) return;
             WeaponCatalog.Info info = WeaponCatalog.All[WeaponCatalog.Selected];
-            m_WeaponValue.text = $"<b><color=#{ColorUtility.ToHtmlStringRGB(info.Color)}>{info.ClassName}</color></b> <size=60%><color=#AAB4C8>{info.Name} · {info.Desc}</color></size>";
+            m_WeaponValue.text = $"<b><color=#{ColorUtility.ToHtmlStringRGB(info.Color)}>{info.ClassName}</color></b> <size=60%><color=#C8C0B0>{info.Role}</color></size>";
             m_WeaponValue.enableAutoSizing = true;
             m_WeaponValue.fontSizeMin = 14f;
         }
@@ -120,7 +128,10 @@ namespace Unity.FPS.NewMode
         {
             Canvas canvas = UIUtil.Canvas(transform, "CustomizeUI", 10);
 
-            var side = UIUtil.Image(canvas.transform, "Side", new Color(0.02f, 0.04f, 0.1f, 0.78f));
+            var side = UIUtil.Image(canvas.transform, "Side", Gs.Night);
+            var sideEdge = UIUtil.Image(side, "Edge", new Color(Gs.Gold.r, Gs.Gold.g, Gs.Gold.b, 0.6f));
+            sideEdge.anchorMin = new Vector2(1f, 0f); sideEdge.anchorMax = new Vector2(1f, 1f); sideEdge.pivot = new Vector2(1f, 0.5f);
+            sideEdge.sizeDelta = new Vector2(3f, 0f);
             side.anchorMin = new Vector2(0f, 0f);
             side.anchorMax = new Vector2(0f, 1f);
             side.pivot = new Vector2(0f, 0.5f);
@@ -128,9 +139,9 @@ namespace Unity.FPS.NewMode
 
             var title = UIUtil.Text(side, m_Font, "<b>캐릭터 꾸미기</b>", 64f, TextAlignmentOptions.Left);
             UIUtil.Place(title.rectTransform, new Vector2(0f, 1f), new Vector2(350f, -80f), new Vector2(600f, 90f));
-            title.color = new Color(1f, 0.84f, 0.3f);
-            title.outlineWidth = 0.15f;
-            title.outlineColor = new Color(0.4f, 0.25f, 0f);
+            title.color = Gs.GoldBright;
+            title.outlineWidth = 0.12f;
+            title.outlineColor = new Color32(40, 30, 10, 255);
 
             if (m_Parts == null || m_Parts.Slots.Length == 0)
             {
@@ -144,14 +155,14 @@ namespace Unity.FPS.NewMode
                 var shown = System.Array.FindAll(m_Parts.Slots, s => s.AllowNone || s.Options.Length > 1);
                 float y = -165f;
                 float step = Mathf.Min(68f, 780f / Mathf.Max(1, shown.Length + 1));
-                m_WeaponValue = Selector(side, y, step - 6f, "직업", () => CycleWeapon(-1), () => CycleWeapon(1), new Color(1f, 0.84f, 0.3f), 0);
+                m_WeaponValue = Selector(side, y, step - 6f, "직업", () => CycleWeapon(-1), () => CycleWeapon(1), Gs.GoldBright, 0);
                 RefreshWeapon();
                 y -= step;
                 int row = 1;
                 foreach (var slot in shown)
                 {
                     var s = slot;
-                    m_Rows.Add((slot, Selector(side, y, step - 6f, slot.Label, () => Cycle(s, -1), () => Cycle(s, 1), new Color(0.7f, 0.8f, 0.95f), row++)));
+                    m_Rows.Add((slot, Selector(side, y, step - 6f, slot.Label, () => Cycle(s, -1), () => Cycle(s, 1), Gs.Cream, row++)));
                     y -= step;
                 }
             }
@@ -160,31 +171,165 @@ namespace Unity.FPS.NewMode
             UIAnim.SlideIn(side, new Vector2(-700f, 0f), 0f, 0.5f);
             UIAnim.PopIn(title.transform, 0.25f);
 
-            var random = UIUtil.Button(side, m_Font, "랜덤", new Color(0.55f, 0.35f, 0.75f), Randomize, new Vector2(290f, 70f), 30f);
+            var random = Gs.Button(side, "랜덤", new Color(0.7f, 0.5f, 0.9f), Randomize, new Vector2(290f, 70f), 28f);
             UIUtil.Place((RectTransform)random.transform, new Vector2(0f, 0f), new Vector2(195f, 70f), new Vector2(290f, 70f));
-            var reset = UIUtil.Button(side, m_Font, "초기화", new Color(0.4f, 0.42f, 0.5f), ResetAll, new Vector2(290f, 70f), 30f);
+            var reset = Gs.Button(side, "초기화", Gs.InkSoft, ResetAll, new Vector2(290f, 70f), 28f);
             UIUtil.Place((RectTransform)reset.transform, new Vector2(0f, 0f), new Vector2(505f, 70f), new Vector2(290f, 70f));
 
-            var next = UIUtil.Button(canvas.transform, m_Font, "<b>모험 시작  ▶</b>", new Color(0.2f, 0.75f, 0.4f), StartAdventure, new Vector2(420f, 100f), 44f);
-            UIUtil.Place((RectTransform)next.transform, new Vector2(1f, 0f), new Vector2(-260f, 90f), new Vector2(420f, 100f));
+            BuildClassCard(canvas.transform);
+
+            var next = Gs.Button(canvas.transform, "<b>모험 시작</b>", new Color(0.35f, 0.75f, 0.5f), StartAdventure, new Vector2(400f, 96f), 40f, true);
+            UIUtil.Place((RectTransform)next.transform, new Vector2(1f, 0f), new Vector2(-330f, 80f), new Vector2(400f, 96f));
             UIAnim.PopIn(next.transform, 0.5f);
-            // 다음 버튼이 은은하게 숨 쉬듯 커졌다 작아졌다
-            next.transform.GetChild(0).DOScale(1.06f, 0.8f).SetLoops(-1, LoopType.Yoyo).SetEase(Ease.InOutSine).SetLink(next.gameObject);
+            // 다음 버튼이 은은하게 숨 쉬듯
+            next.transform.GetChild(1).DOScale(1.12f, 0.8f).SetLoops(-1, LoopType.Yoyo).SetEase(Ease.InOutSine).SetLink(next.gameObject);
 
-            var back = UIUtil.Button(canvas.transform, m_Font, "◀ 모드 선택", new Color(0.25f, 0.35f, 0.55f), GoBack, new Vector2(240f, 60f), 26f);
-            UIUtil.Place((RectTransform)back.transform, new Vector2(1f, 1f), new Vector2(-150f, -50f), new Vector2(240f, 60f));
+            var back = Gs.Button(canvas.transform, "모드 선택", Gs.InkSoft, GoBack, new Vector2(240f, 62f), 24f);
+            UIUtil.Place((RectTransform)back.transform, new Vector2(1f, 1f), new Vector2(-150f, -50f), new Vector2(240f, 62f));
 
-            var hint = UIUtil.Text(canvas.transform, m_Font, "직업은 모험 중에 바꿀 수 없어요 · 마우스로 끌어서 돌리기 · Enter: 모험 시작 · Esc: 뒤로", 22f, TextAlignmentOptions.Center);
-            UIUtil.Place(hint.rectTransform, new Vector2(0.5f, 0f), new Vector2(120f, 30f), new Vector2(900f, 36f));
-            hint.color = new Color(1f, 1f, 1f, 0.7f);
-            hint.outlineWidth = 0.2f;
-            hint.outlineColor = new Color(0f, 0f, 0f, 0.6f);
+            var hint = Gs.Text(canvas.transform, "직업은 모험 중에 바꿀 수 없어요 · 마우스로 끌어서 돌리기 · Enter: 모험 시작 · Esc: 뒤로", 21f, TextAlignmentOptions.Center, new Color(1f, 1f, 1f, 0.75f), true);
+            UIUtil.Place(hint.rectTransform, new Vector2(0.5f, 0f), new Vector2(-150f, 26f), new Vector2(900f, 34f));
+        }
+
+        // ---------------------------------------------------------------- 오른쪽: 직업 정보 + 문제 난이도 (원신의 캐릭터 정보 카드처럼)
+
+        RectTransform m_Card, m_CardBody;
+        TextMeshProUGUI m_LevelValue, m_LevelInfo;
+
+        void BuildClassCard(Transform canvas)
+        {
+            m_Card = Gs.Panel(canvas, "Class Card", true);
+            m_Card.anchorMin = m_Card.anchorMax = new Vector2(1f, 0.5f);
+            m_Card.pivot = new Vector2(1f, 0.5f);
+            m_Card.anchoredPosition = new Vector2(-40f, 60f);
+            m_Card.sizeDelta = new Vector2(600f, 820f);
+            m_CardBody = new GameObject("Body", typeof(RectTransform)).GetComponent<RectTransform>();
+            m_CardBody.SetParent(m_Card, false);
+            UIUtil.Stretch(m_CardBody, 0f);
+            m_CardBody.offsetMin = new Vector2(0f, 150f);
+
+            // 아래: 문제 난이도
+            var line = UIUtil.Image(m_Card, "Line", new Color(Gs.Gold.r, Gs.Gold.g, Gs.Gold.b, 0.5f));
+            UIUtil.Place(line, new Vector2(0.5f, 0f), new Vector2(0f, 148f), new Vector2(540f, 2f));
+            var label = Gs.Text(m_Card, "<b>수학 문제 난이도</b>", 26f, TextAlignmentOptions.Left, Gs.GoldBright);
+            UIUtil.Place(label.rectTransform, new Vector2(0f, 0f), new Vector2(150f, 112f), new Vector2(260f, 36f));
+            var prev = Gs.Button(m_Card, "", Gs.InkSoft, () => CycleLevel(-1), new Vector2(54f, 54f), 20f);
+            UIUtil.Place((RectTransform)prev.transform, new Vector2(1f, 0f), new Vector2(-270f, 112f), new Vector2(54f, 54f));
+            ArrowText(prev, "◀");
+            var nextL = Gs.Button(m_Card, "", Gs.InkSoft, () => CycleLevel(1), new Vector2(54f, 54f), 20f);
+            UIUtil.Place((RectTransform)nextL.transform, new Vector2(1f, 0f), new Vector2(-50f, 112f), new Vector2(54f, 54f));
+            ArrowText(nextL, "▶");
+            m_LevelValue = Gs.Text(m_Card, "", 30f, TextAlignmentOptions.Center, Color.white);
+            UIUtil.Place(m_LevelValue.rectTransform, new Vector2(1f, 0f), new Vector2(-160f, 112f), new Vector2(160f, 40f));
+            m_LevelInfo = Gs.Text(m_Card, "", 20f, TextAlignmentOptions.Center, Gs.Cream);
+            UIUtil.Place(m_LevelInfo.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 50f), new Vector2(560f, 60f));
+
+            UIAnim.SlideIn(m_Card, new Vector2(400f, 0f), 0.15f, 0.5f);
+            RefreshClassCard();
+            RefreshLevel();
+        }
+
+        static void ArrowText(UnityEngine.UI.Button b, string arrow)
+        {
+            // 작은 동그라미 버튼: 아이콘 자리를 비우고 가운데 화살표
+            var icon = b.transform.Find("Icon");
+            if (icon) icon.gameObject.SetActive(false);
+            var t = b.GetComponentInChildren<TextMeshProUGUI>();
+            t.text = arrow;
+            t.rectTransform.offsetMin = new Vector2(2f, 2f);
+            t.rectTransform.offsetMax = new Vector2(-2f, -2f);
+        }
+
+        void CycleLevel(int d)
+        {
+            MathProblem.Level = (MathProblem.Level + d + 3) % 3;
+            RefreshLevel();
+            UIAnim.Punch(m_LevelValue.transform, 0.25f);
+        }
+
+        void RefreshLevel()
+        {
+            int lv = MathProblem.Level;
+            Color[] colors = { new Color(0.5f, 0.9f, 0.6f), new Color(1f, 0.85f, 0.4f), new Color(1f, 0.5f, 0.45f) };
+            m_LevelValue.text = $"<b><color={Gs.Hex(colors[lv])}>{MathProblem.LevelNames[lv]}</color></b>";
+            m_LevelInfo.text = MathProblem.LevelInfo[lv] + "  · 받침대 4곳 × 3문제";
+        }
+
+        void RefreshClassCard()
+        {
+            if (!m_CardBody) return;
+            foreach (Transform c in m_CardBody) Destroy(c.gameObject);
+            WeaponCatalog.Info info = WeaponCatalog.Current;
+            var st = info.Stats;
+            float y = -30f;
+
+            var dot = UIUtil.RoundedImage(m_CardBody, "Element", info.Color, true);
+            UIUtil.Place(dot, new Vector2(0f, 1f), new Vector2(54f, y - 22f), new Vector2(44f, 44f));
+            dot.gameObject.AddComponent<UnityEngine.UI.Outline>().effectColor = Gs.Gold;
+            var name = Gs.Text(m_CardBody, $"<b>{info.ClassName}</b>", 42f, TextAlignmentOptions.Left, Color.white);
+            UIUtil.Place(name.rectTransform, new Vector2(0f, 1f), new Vector2(330f, y - 18f), new Vector2(500f, 54f));
+            var role = Gs.Text(m_CardBody, $"<color={Gs.Hex(Gs.GoldBright)}>{info.Role}</color>  ·  {info.Name}", 22f, TextAlignmentOptions.Left, Gs.Cream);
+            UIUtil.Place(role.rectTransform, new Vector2(0f, 1f), new Vector2(330f, y - 58f), new Vector2(500f, 30f));
+            y -= 100f;
+
+            (string, float, string)[] stats =
+            {
+                ("체력", st.MaxHP / 150f, $"{st.MaxHP:0}"),
+                ("공격력", st.Attack / 1.3f, $"{st.Attack * 100f:0}%"),
+                ("공격 속도", st.AttackSpeed / 1.4f, $"{st.AttackSpeed * 100f:0}%"),
+                ("이동 속도", st.Move / 1.2f, $"{st.Move * 100f:0}%"),
+                ("치명타", st.Crit / 0.35f, $"{st.Crit * 100f:0}% · ×{st.CritDamage:0.0}"),
+                ("방어력", st.Defense / 0.3f, $"{st.Defense * 100f:0}%"),
+            };
+            foreach (var (label, fill, value) in stats)
+            {
+                var l = Gs.Text(m_CardBody, label, 22f, TextAlignmentOptions.Left, Gs.Cream);
+                UIUtil.Place(l.rectTransform, new Vector2(0f, 1f), new Vector2(110f, y), new Vector2(160f, 30f));
+                var bar = UIUtil.Image(m_CardBody, "Bar", new Color(1f, 1f, 1f, 0.08f));
+                UIUtil.Place(bar, new Vector2(0f, 1f), new Vector2(330f, y), new Vector2(220f, 8f));
+                var f = UIUtil.Image(bar, "Fill", Gs.Gold);
+                f.anchorMin = Vector2.zero; f.anchorMax = new Vector2(Mathf.Clamp01(fill), 1f);
+                f.offsetMin = f.offsetMax = Vector2.zero;
+                var v = Gs.Text(m_CardBody, $"<b>{value}</b>", 22f, TextAlignmentOptions.Right, Color.white);
+                UIUtil.Place(v.rectTransform, new Vector2(1f, 1f), new Vector2(-110f, y), new Vector2(180f, 30f));
+                y -= 34f;
+            }
+            y -= 12f;
+
+            // 스킬 (평타 + Q·E·X·C 이름)
+            var t = Gs.Text(m_CardBody, "<b>스킬</b>", 24f, TextAlignmentOptions.Left, Gs.GoldBright);
+            UIUtil.Place(t.rectTransform, new Vector2(0f, 1f), new Vector2(300f, y), new Vector2(540f, 32f));
+            y -= 36f;
+            string[] keys = { "평타", "Q", "E", "X", "C" };
+            string[] names = SkillNames(WeaponCatalog.Selected);
+            for (int i = 0; i < keys.Length && i < names.Length; i++)
+            {
+                var k = Gs.Key(m_CardBody, keys[i], 28f);
+                k.anchorMin = k.anchorMax = new Vector2(0f, 1f);
+                k.anchoredPosition = new Vector2(60f, y);
+                var n = Gs.Text(m_CardBody, names[i], 22f, TextAlignmentOptions.Left, Color.white);
+                UIUtil.Place(n.rectTransform, new Vector2(0f, 1f), new Vector2(330f, y), new Vector2(460f, 30f));
+                y -= 34f;
+            }
+            UIAnim.FadeIn(UIAnim.Group(m_CardBody), 0.25f);
+        }
+
+        // 꾸미기 화면에는 전투가 없어서 이름만 따로 적어 둔다 (NewModeCombat.<무기>.cs와 같은 이름)
+        static string[] SkillNames(int index)
+        {
+            switch (index)
+            {
+                case 0: return new[] { "서리 베기 — 3단, 3타 빙결", "서리 물결", "빙결 결계", "빙하 낙하", "절대영도 (궁극기)" };
+                case 1: return new[] { "대지 가르기 — 3단, 길게 누르면 모아 찍기", "회전 투척", "대지 회오리", "대지 융기", "운석 낙하 (궁극기)" };
+                case 2: return new[] { "번개 찌르기 — 3단, 4타마다 연쇄 번개", "섬광 돌진", "뇌전 폭발", "오성 섬격", "천둥 난무 (궁극기)" };
+                default: return new[] { "속사 — 3단, 조준 헤드샷", "부채 사격", "구르기", "점착 수류탄", "데드아이 (궁극기)" };
+            }
         }
 
         TextMeshProUGUI Selector(RectTransform parent, float y, float height, string label,
             UnityEngine.Events.UnityAction prev, UnityEngine.Events.UnityAction next, Color labelColor, int index)
         {
-            var row = UIUtil.RoundedImage(parent, label, new Color(1f, 1f, 1f, index == 0 ? 0.14f : 0.08f));
+            var row = UIUtil.RoundedImage(parent, label, index == 0 ? new Color(Gs.Gold.r, Gs.Gold.g, Gs.Gold.b, 0.18f) : Gs.Row);
             UIUtil.Place(row, new Vector2(0f, 1f), new Vector2(350f, y), new Vector2(600f, height));
 
             var name = UIUtil.Text(row, m_Font, index == 0 ? $"<b>{label}</b>" : label, 26f, TextAlignmentOptions.Left);
@@ -195,9 +340,11 @@ namespace Unity.FPS.NewMode
             name.fontSizeMax = 26f;
 
             float buttonSize = height - 6f;
-            var left = UIUtil.Button(row, m_Font, "◀", new Color(0.25f, 0.35f, 0.55f), prev, new Vector2(buttonSize, buttonSize), 26f);
+            var left = Gs.Button(row, "", Gs.InkSoft, prev, new Vector2(buttonSize, buttonSize), 22f);
+            ArrowText(left, "◀");
             UIUtil.Place((RectTransform)left.transform, new Vector2(0f, 0.5f), new Vector2(200f, 0f), new Vector2(buttonSize, buttonSize));
-            var right = UIUtil.Button(row, m_Font, "▶", new Color(0.25f, 0.35f, 0.55f), next, new Vector2(buttonSize, buttonSize), 26f);
+            var right = Gs.Button(row, "", Gs.InkSoft, next, new Vector2(buttonSize, buttonSize), 22f);
+            ArrowText(right, "▶");
             UIUtil.Place((RectTransform)right.transform, new Vector2(1f, 0.5f), new Vector2(-40f, 0f), new Vector2(buttonSize, buttonSize));
 
             var value = UIUtil.Text(row, m_Font, "", 28f, TextAlignmentOptions.Center);
@@ -315,13 +462,17 @@ namespace Unity.FPS.NewMode
             }
 
             // 화면(버튼이 아닌 곳)을 끌어서 캐릭터 돌리기
-            Mouse mouse = Mouse.current;
-            if (mouse != null)
+            Pointer pointer = Pointer.current;
+            if (pointer != null)
             {
-                if (mouse.leftButton.wasPressedThisFrame)
-                    m_Dragging = EventSystem.current == null || !EventSystem.current.IsPointerOverGameObject();
-                if (!mouse.leftButton.isPressed) m_Dragging = false;
-                if (m_Dragging) m_Yaw -= mouse.delta.ReadValue().x * 0.4f;
+                if (pointer.press.wasPressedThisFrame)
+                {
+                    bool overUI = EventSystem.current != null &&
+                                  (EventSystem.current.IsPointerOverGameObject() || EventSystem.current.IsPointerOverGameObject(0));
+                    m_Dragging = !overUI;
+                }
+                if (!pointer.press.isPressed) m_Dragging = false;
+                if (m_Dragging) m_Yaw -= pointer.delta.ReadValue().x * 0.4f * 1080f / Mathf.Max(1, Screen.height);
             }
 
             if (m_Turntable) m_Turntable.rotation = Quaternion.Euler(0f, m_Yaw, 0f);

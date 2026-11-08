@@ -13,6 +13,7 @@ namespace Unity.FPS.NewMode
     public class SkillDef
     {
         public string Key, Name, Formula;
+        public string Desc;                   // 캐릭터 정보 창에 보이는 한 줄 설명
         public float Cooldown, Remaining;
         public Func<IEnumerator> Run;
         public Func<string> Detail;          // 쓸 때 화면 위에 크게 뜨는 식 (실제 숫자 포함)
@@ -39,6 +40,7 @@ namespace Unity.FPS.NewMode
         public string GimmickName, GimmickInfo;      // 예: "서리 낙인", "3번 맞히면 얼어붙고, 얼어붙은 적을 치면 산산조각"
         public Func<string> Gimmick;                 // HUD에 계속 보이는 상태 (예: "탄창 9 / 12")
         public Action Tick;                          // 매 프레임 (무기 고유 입력·게이지)
+        public float BasicRange = 2.5f;                 // 평타 거리 (파고들기 기준, 스케일 1)
         public Func<TrainingDummy, float> HitMultiplier; // 맞힐 때 피해 배율 (기믹 효과), 태그는 HitTag로
     }
 
@@ -52,18 +54,45 @@ namespace Unity.FPS.NewMode
             public WeaponKind Kind;
             public bool TwoHanded;
             public Color Color;
+            public string Role;              // 역할 (근접 균형 · 탱커 · 암살자 · 원거리)
+            public ClassStats Stats;
         }
 
+        // 직업 능력치 (캐릭터 정보 창에 보이고, 실제 전투에 그대로 쓰인다)
+        public struct ClassStats
+        {
+            public float MaxHP;        // 최대 체력
+            public float Attack;       // 공격력 배율 (1 = 100%)
+            public float AttackSpeed;  // 공격 속도 배율 (휘두르기·연사 빠르기)
+            public float Crit;         // 치명타 확률 (0~1)
+            public float CritDamage;   // 치명타 피해 배율
+            public float Move;         // 이동 속도 배율
+            public float Defense;      // 받는 피해 감소 (0~1)
+            public float Headshot;     // 머리 명중 배율 (총)
+        }
+
+        // 직업 4개 — 각자 확실히 다른 역할
+        //  서리 검사   : 근접 균형형 · 얼려서 깨뜨리는 제어
+        //  대지 전사   : 느리고 단단한 탱커 · 모아 찍기 한 방
+        //  번개 암살자 : 빠르고 약한 몸 · 치명타와 연쇄 번개, 순간이동
+        //  황금 명사수 : 원거리 · 탄창 관리와 조준 헤드샷
         public static readonly Info[] All =
         {
-            new Info { Name = "서리검", Model = null, Theme = "얼음", ClassName = "서리 검사", Desc = "3타 빙결 → 산산조각", Kind = WeaponKind.Melee, Color = new Color(0.45f, 0.85f, 1f) },
-            new Info { Name = "대지 도끼", Model = "axe_001", Theme = "대지", ClassName = "대지 전사", Desc = "길게 눌러 모아 찍기", Kind = WeaponKind.Melee, Color = new Color(1f, 0.6f, 0.25f) },
-            new Info { Name = "번개 단검", Model = "knife_001", Theme = "번개", ClassName = "번개 암살자", Desc = "연쇄 번개 · 표식 폭발", Kind = WeaponKind.Melee, Color = new Color(1f, 0.45f, 0.85f) },
-            new Info { Name = "홈런 배트", Model = "baseball_bat_001", Theme = "별빛", ClassName = "홈런 타자", Desc = "날려서 부딪치는 핀볼", Kind = WeaponKind.Melee, Color = new Color(1f, 0.9f, 0.35f) },
-            new Info { Name = "권총", Model = "pistol_001", Theme = "황금", ClassName = "황금 총잡이", Desc = "12발 탄창 · 마지막 한 발 ×3", Kind = WeaponKind.Gun, Color = new Color(1f, 0.85f, 0.3f) },
-            new Info { Name = "산탄총", Model = "shotgun_001", Theme = "화염", ClassName = "화염 산탄수", Desc = "붙어서 쏘면 ×2 · 밀어내기", Kind = WeaponKind.Gun, TwoHanded = true, Color = new Color(1f, 0.4f, 0.3f) },
-            new Info { Name = "저격총", Model = "sniper_rifle_001", Theme = "자수정", ClassName = "자수정 저격수", Desc = "조준 집중 · 헤드샷 ×2", Kind = WeaponKind.Gun, TwoHanded = true, Color = new Color(0.75f, 0.5f, 1f) },
+            new Info { Name = "서리검", Model = null, Theme = "얼음", ClassName = "서리 검사", Role = "근접 · 제어", Desc = "3타 빙결 → 산산조각",
+                Kind = WeaponKind.Melee, Color = new Color(0.45f, 0.85f, 1f),
+                Stats = new ClassStats { MaxHP = 125f, Attack = 1.2f, AttackSpeed = 1.05f, Crit = 0.2f, CritDamage = 1.9f, Move = 1.02f, Defense = 0.12f, Headshot = 1f } },
+            new Info { Name = "대지 도끼", Model = "axe_001", Theme = "대지", ClassName = "대지 전사", Role = "근접 · 탱커", Desc = "길게 눌러 모아 찍기",
+                Kind = WeaponKind.Melee, Color = new Color(1f, 0.6f, 0.25f),
+                Stats = new ClassStats { MaxHP = 170f, Attack = 1.4f, AttackSpeed = 0.95f, Crit = 0.12f, CritDamage = 2.0f, Move = 0.97f, Defense = 0.25f, Headshot = 1f } },
+            new Info { Name = "번개 단검", Model = "knife_001", Theme = "번개", ClassName = "번개 암살자", Role = "근접 · 암살", Desc = "연쇄 번개 · 표식 폭발",
+                Kind = WeaponKind.Melee, Color = new Color(1f, 0.45f, 0.85f),
+                Stats = new ClassStats { MaxHP = 100f, Attack = 1.05f, AttackSpeed = 1.3f, Crit = 0.33f, CritDamage = 2.15f, Move = 1.15f, Defense = 0.05f, Headshot = 1f } },
+            new Info { Name = "권총", Model = "pistol_001", Theme = "황금", ClassName = "황금 명사수", Role = "원거리 · 저격", Desc = "12발 탄창 · 조준 헤드샷",
+                Kind = WeaponKind.Gun, Color = new Color(1f, 0.85f, 0.3f),
+                Stats = new ClassStats { MaxHP = 115f, Attack = 1.2f, AttackSpeed = 1.15f, Crit = 0.25f, CritDamage = 2.0f, Move = 1.08f, Defense = 0.08f, Headshot = 1.8f } },
         };
+
+        public static Info Current => All[Selected];
 
         const string k_Pref = "NewMode.Weapon";
         public static int Selected

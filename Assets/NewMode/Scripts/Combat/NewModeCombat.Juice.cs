@@ -16,7 +16,7 @@ namespace Unity.FPS.NewMode
     //  - F1: 함수 그래프·이펙트 함수식 보기 켜고 끄기 (기본 꺼짐)
     public partial class NewModeCombat
     {
-        const float k_DamageScale = 37f;
+        const float k_DamageScale = 46f; // 전체 피해 (예전 37 → 46, 약 ×1.25)
 
         bool m_Ultimate;          // 궁극기 진행 중 (모든 타격 치명타 + 1.5배)
         bool m_InCutscene;
@@ -39,6 +39,7 @@ namespace Unity.FPS.NewMode
             public string Pillar;  // 컷신: 하늘로 솟는 기둥
             public string Release; // 컷신 끝: 터지는 순간
             public string Trail;   // 스킬 곡선을 따라 터지는 이펙트
+            public string Slash;   // 평타를 휘두를 때 칼날 궤적을 따라 나오는 베기 이펙트 (총은 없음)
             public float CircleSize, AuraSize;
         }
 
@@ -46,25 +47,16 @@ namespace Unity.FPS.NewMode
         {
             // 얼음검
             new Theme { Cast = "Sparks explode blue", Impact = "Sparks explode blue", Circle = "Freeze circle", Aura = "Snow AOE",
-                Charge = "Sparks flashing blue", Pillar = "Crystal effect blue", Release = "Freeze circle", Trail = "Sparks explode blue", CircleSize = 2.2f, AuraSize = 0.9f },
+                Charge = "Sparks flashing blue", Pillar = "Crystal effect blue", Release = "Freeze circle", Trail = "Sparks explode blue", Slash = "Snow slash", CircleSize = 2.2f, AuraSize = 0.9f },
             // 대지 도끼
             new Theme { Cast = "Dust ground", Impact = "Stones hit", Circle = "FX_Magic Door_Gold", Aura = "Dust loop",
-                Charge = "Sparks flashing red", Pillar = "Crystal effect red", Release = "Ground AOE explosion", Trail = "Stones hit", CircleSize = 2.2f, AuraSize = 0.7f },
+                Charge = "Sparks flashing red", Pillar = "Crystal effect red", Release = "Ground AOE explosion", Trail = "Stones hit", Slash = "Stone slash", CircleSize = 2.2f, AuraSize = 0.7f },
             // 번개 단검
             new Theme { Cast = "Plexus AoE", Impact = "Electro hit", Circle = "Magic circle 2", Aura = "Lightning aura",
-                Charge = "Sparks flashing pink", Pillar = "Crystal effect blue", Release = "Electro slash", Trail = "Electro hit", CircleSize = 2.2f, AuraSize = 0.9f },
-            // 홈런 방망이
-            new Theme { Cast = "Dust puff", Impact = "Star hit", Circle = "Portal yellow", Aura = "Star aura",
-                Charge = "Sparks flashing yellow", Pillar = "FX_PinkCross_Up", Release = "Sparks explode yellow", Trail = "Star hit", CircleSize = 2.2f, AuraSize = 0.9f },
+                Charge = "Sparks flashing pink", Pillar = "Crystal effect blue", Release = "Electro slash", Trail = "Electro hit", Slash = "Electro slash", CircleSize = 2.2f, AuraSize = 0.9f },
             // 권총
             new Theme { Cast = "Buff", Impact = "Sparks explode yellow", Circle = "FX_Magic Door_Gold", Aura = "Magic shield yellow",
                 Charge = "Sparks flashing yellow", Pillar = "FX_LightPillar", Release = "Holy hit", Trail = "Sparks explode yellow", CircleSize = 2.2f, AuraSize = 0.9f },
-            // 산탄총
-            new Theme { Cast = "Smoke puff", Impact = "Sparks explode red", Circle = "Portal red", Aura = "Sparks flashing red",
-                Charge = "Sparks flashing red", Pillar = "FX_LightPillar", Release = "Red energy explosion", Trail = "Sparks explode red", CircleSize = 1.4f, AuraSize = 0.8f },
-            // 저격총
-            new Theme { Cast = "Sparks flashing pink", Impact = "FX_Purple_Hit_02", Circle = "Laser AOE", Aura = "Magic shield pink",
-                Charge = "Sparks flashing pink", Pillar = "FX_LightPillar", Release = "Laser AOE", Trail = "FX_Purple_Hit_02", CircleSize = 1.4f, AuraSize = 0.9f },
         };
 
         Theme Th => k_Themes[Mathf.Clamp(m_Weapon.Index, 0, k_Themes.Length - 1)];
@@ -113,13 +105,19 @@ namespace Unity.FPS.NewMode
                 m_LastImpactFxFrame = Time.frameCount;
                 Fx.Play(Th.Impact, d.Center, Quaternion.LookRotation(d.Center - Chest), (crit ? 0.6f : 0.45f) * S, 0.15f, false);
             }
+            else if (m_LastImpactFxFrame != Time.frameCount)
+            {
+                // 작은 타격도 손맛: 맞은 자리에 작은 불꽃 (직업 색)
+                m_LastImpactFxFrame = Time.frameCount;
+                Fx.Play("Sparks explode white", d.Center, Quaternion.LookRotation(d.Center - Chest), 0.22f * S, 0.1f, false);
+            }
 
             // 한 프레임에 여러 명을 맞혀도 흔들림·멈칫은 한 번만
             if (m_LastImpactFrame == Time.frameCount) return;
             m_LastImpactFrame = Time.frameCount;
 
-            if (crit) { m_Player.Shake(0.16f, 0.32f); Hitstop(m_Ultimate ? 0.11f : 0.08f); }
-            else if (big) { m_Player.Shake(0.1f, 0.24f); Hitstop(0.055f); }
+            if (crit) { m_Player.Shake(0.16f, 0.32f); Hitstop(m_Ultimate ? 0.11f : 0.08f); PostFx.Pulse(0.45f, C); }
+            else if (big) { m_Player.Shake(0.1f, 0.24f); Hitstop(0.055f); PostFx.Pulse(0.25f, C); }
             else if (!gunTap) { m_Player.Shake(0.04f, 0.12f); Hitstop(0.025f); }
             else m_Player.Shake(0.025f, 0.08f);
         }

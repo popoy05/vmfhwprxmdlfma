@@ -23,10 +23,12 @@ namespace Unity.FPS.MathMode
             var group = Group(rt);
             group.alpha = 0f;
             DOTween.Kill(rt);
+            // 어떤 이유로 중간에 끊겨도(Kill) 마지막 모습(제자리·불투명)으로 맞춘다
             return DOTween.Sequence()
                 .Append(rt.DOAnchorPos(target, duration).SetEase(Ease.OutBack))
                 .Join(group.DOFade(1f, duration * 0.6f))
-                .SetDelay(delay).SetUpdate(true).SetLink(rt.gameObject).SetTarget(rt);
+                .SetDelay(delay).SetUpdate(true).SetLink(rt.gameObject).SetTarget(rt)
+                .OnKill(() => { if (rt) { rt.anchoredPosition = target; group.alpha = 1f; } });
         }
 
         /// <summary>작게 시작해서 통통 튀며 커진다</summary>
@@ -35,7 +37,7 @@ namespace Unity.FPS.MathMode
             t.localScale = Vector3.one * 0.5f;
             var group = Group(t);
             group.alpha = 0f;
-            return DOTween.Sequence()
+            return DOTween.Sequence().OnKill(() => { if (t) { t.localScale = Vector3.one; group.alpha = 1f; } })
                 .Append(t.DOScale(1f, duration).SetEase(Ease.OutBack))
                 .Join(group.DOFade(1f, duration * 0.5f))
                 .SetDelay(delay).SetUpdate(true).SetLink(t.gameObject);
@@ -73,10 +75,12 @@ namespace Unity.FPS.MathMode
         public float HoverScale = 1.06f;
         bool m_Over;
 
+        // 자기 크기 트윈만 끊는다 — transform.DOKill()은 같은 대상의 등장 애니메이션(SlideIn)까지 끊어서
+        // 카드가 투명한 채로 멈추는 문제가 있었다 (모드 선택으로 돌아왔을 때 "새 모드" 카드가 안 보이는데 클릭은 되던 버그)
         void To(float scale, float duration)
         {
-            transform.DOKill();
-            transform.DOScale(scale, duration).SetEase(Ease.OutQuad).SetUpdate(true).SetLink(gameObject);
+            DOTween.Kill(this);
+            transform.DOScale(scale, duration).SetEase(Ease.OutQuad).SetUpdate(true).SetLink(gameObject).SetTarget(this);
         }
 
         public void OnPointerEnter(PointerEventData e) { m_Over = true; To(HoverScale, 0.15f); }
@@ -86,7 +90,7 @@ namespace Unity.FPS.MathMode
 
         void OnDisable()
         {
-            transform.DOKill();
+            DOTween.Kill(this);
             transform.localScale = Vector3.one;
         }
     }

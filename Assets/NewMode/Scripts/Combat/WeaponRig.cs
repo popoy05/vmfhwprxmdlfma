@@ -100,12 +100,14 @@ namespace Unity.FPS.NewMode
         }
 
         bool Active => m_Combat && m_Combat.SwordActive;
+        // 궁극기 컷신 동안은 세상 시간이 거의 멈추므로, 무기·몸 움직임은 실제 시간으로
+        float Dt => m_Combat && m_Combat.InCutscene ? Time.unscaledDeltaTime : Time.deltaTime;
 
         void OnAnimatorIK(int layerIndex)
         {
             if (!m_Root || !m_Shoulder) return;
             float target = Active ? 1f : 0f;
-            m_IKWeight = Mathf.MoveTowards(m_IKWeight, target, Time.deltaTime * (target > m_IKWeight ? 14f : 5f));
+            m_IKWeight = Mathf.MoveTowards(m_IKWeight, target, Dt * (target > m_IKWeight ? 14f : 5f));
             if (m_IKWeight <= 0.001f) return;
 
             // 손 위치 = 어깨 + 무기 방향 × 팔 길이 × 뻗는 정도
@@ -124,8 +126,17 @@ namespace Unity.FPS.NewMode
                 m_Animator.SetIKPosition(AvatarIKGoal.LeftHand, support);
             }
 
-            m_Animator.SetLookAtWeight(m_IKWeight * 0.6f, 0.25f, 0.6f);
-            m_Animator.SetLookAtPosition(m_Shoulder.position + dir * 3f * m_Scale);
+            if (m_Combat.LookTarget.HasValue)
+            {
+                // 궁극기 컷신: 고개를 카메라(보는 사람) 쪽으로
+                m_Animator.SetLookAtWeight(1f, 0.15f, 0.9f, 0.6f);
+                m_Animator.SetLookAtPosition(m_Combat.LookTarget.Value);
+            }
+            else
+            {
+                m_Animator.SetLookAtWeight(m_IKWeight * 0.6f, 0.25f, 0.6f);
+                m_Animator.SetLookAtPosition(m_Shoulder.position + dir * 3f * m_Scale);
+            }
         }
 
         void LateUpdate()
@@ -157,7 +168,7 @@ namespace Unity.FPS.NewMode
                 lean += m_Combat.BodyLean;
                 crouch = m_Combat.Crouch;
             }
-            float k = 1f - Mathf.Exp(-18f * Time.deltaTime);
+            float k = 1f - Mathf.Exp(-18f * Dt);
             m_Twist = Mathf.Lerp(m_Twist, twist, k);
             m_Lean = Mathf.Lerp(m_Lean, lean, k);
             m_Crouch = Mathf.Lerp(m_Crouch, crouch, k);
@@ -186,7 +197,7 @@ namespace Unity.FPS.NewMode
             }
 
             float speed = Active ? 40f : 10f;
-            float k = snap ? 1f : 1f - Mathf.Exp(-speed * Time.deltaTime);
+            float k = snap ? 1f : 1f - Mathf.Exp(-speed * Dt);
             m_Dir = Vector3.Slerp(m_Dir, wantDir, k).normalized;
             m_Up = Vector3.Slerp(m_Up, wantUp, k);
             if (Vector3.Cross(m_Dir, m_Up).sqrMagnitude < 0.0001f) m_Up = m_Root.right;

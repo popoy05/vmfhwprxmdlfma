@@ -61,6 +61,20 @@ namespace Unity.FPS.NewMode
             return fx;
         }
 
+        /// <summary>시간 배율과 상관없이 재생 (컷신용)</summary>
+        public static GameObject Unscaled(GameObject fx)
+        {
+            if (!fx) return fx;
+            foreach (var ps in fx.GetComponentsInChildren<ParticleSystem>(true))
+            {
+                var main = ps.main;
+                main.useUnscaledTime = true;
+            }
+            var life = fx.GetComponent<FxLifetime>();
+            if (life) life.Unscaled = true;
+            return fx;
+        }
+
         /// <summary>
         /// 파티클 색을 tint 쪽으로 (밝기는 유지): c' = lerp(c, tint·max(r,g,b), 0.8), 알파는 그대로
         /// </summary>
@@ -115,6 +129,7 @@ namespace Unity.FPS.NewMode
     {
         float m_StopAt, m_DestroyAt, m_Age;
         bool m_Stopped;
+        public bool Unscaled; // 궁극기 컷신처럼 시간이 거의 멈춘 동안에도 재생
 
         public void Init(float stopAt, float destroyAt)
         {
@@ -124,7 +139,7 @@ namespace Unity.FPS.NewMode
 
         void Update()
         {
-            m_Age += Time.deltaTime;
+            m_Age += Unscaled ? Time.unscaledDeltaTime : Time.deltaTime;
             if (!m_Stopped && m_Age >= m_StopAt)
             {
                 m_Stopped = true;

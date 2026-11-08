@@ -56,6 +56,14 @@ namespace Unity.FPS.NewMode
         public bool Marked => Time.time < m_MarkedUntil;
         float m_MarkedUntil;
         GameObject m_MarkFx;
+        // 균열 (대지 전사: 융기·회오리·3단이 남김 → 투척·모아 찍기가 터뜨림 ×3)
+        public bool Cracked => Time.time < m_CrackUntil;
+        float m_CrackUntil;
+        GameObject m_CrackFx;
+        // 약점 노출 (황금 명사수: 부채 사격이 남김 → 관통탄이 꿰뚫음 ×3)
+        public bool Exposed => Time.time < m_ExposeUntil;
+        float m_ExposeUntil;
+        GameObject m_ExposeFx;
 
         public bool Alive => m_DownTimer <= 0f;
         float BodyScale => Scale * (Kind == MobKind.Boss ? 2.6f : Kind == MobKind.Brute ? 1.7f : Kind == MobKind.Hopper ? 0.75f : 1f);
@@ -63,6 +71,55 @@ namespace Unity.FPS.NewMode
         public Vector3 Head => transform.position + Vector3.up * 1.62f * BodyScale;
         public float Radius => 0.35f * BodyScale;
         public float Height => 1.9f * BodyScale;
+        public float HeadRadius => 0.24f * BodyScale;
+
+        // ---------------------------------------------------------------- 맞는 자리 (몸 크기 그대로)
+        //  몸: 발에서 머리까지의 캡슐 (반지름 Radius) — 거인·보스는 커서 맞는 곳도 크다
+        //  머리: Head 둘레의 구 (반지름 HeadRadius) — 헤드샷 판정
+
+        /// <summary>광선이 몸(캡슐)에 닿는가. 여유 margin, 닿는 곳까지의 거리 along</summary>
+        public bool RayHitsBody(Ray ray, float margin, out float along)
+        {
+            Vector3 a = transform.position + Vector3.up * Radius * 0.5f;
+            Vector3 b = Head + Vector3.up * HeadRadius * 0.6f;
+            float dist = RaySegmentDistance(ray, a, b, out along, out _);
+            return dist <= Radius + margin;
+        }
+
+        /// <summary>광선이 머리(구)에 닿는가</summary>
+        public bool RayHitsHead(Ray ray, float margin)
+        {
+            Vector3 to = Head - ray.origin;
+            float t = Vector3.Dot(to, ray.direction);
+            if (t < 0f) return false;
+            return (to - ray.direction * t).magnitude <= HeadRadius + margin;
+        }
+
+        // 광선과 선분 사이의 가장 가까운 거리 (along: 광선 위 거리)
+        static float RaySegmentDistance(Ray ray, Vector3 a, Vector3 b, out float along, out float segT)
+        {
+            Vector3 d1 = ray.direction, d2 = b - a, r = ray.origin - a;
+            float A = Vector3.Dot(d1, d1), E = Vector3.Dot(d2, d2), F = Vector3.Dot(d2, r);
+            float C = Vector3.Dot(d1, r), B = Vector3.Dot(d1, d2);
+            float denom = A * E - B * B;
+            float s1 = denom > 1e-6f ? Mathf.Max(0f, (B * F - C * E) / denom) : 0f;
+            float t2 = E > 1e-6f ? Mathf.Clamp01((B * s1 + F) / E) : 0f;
+            s1 = Mathf.Max(0f, (B * t2 - C) / A);
+            along = s1;
+            segT = t2;
+            return (ray.origin + d1 * s1 - (a + d2 * t2)).magnitude;
+        }
+
+        /// <summary>from → to 사이에 벽·나무·건물이 있나 (몸통 높이에서 몸 두께로 검사)</summary>
+        bool Blocked(Vector3 from, Vector3 to)
+        {
+            Vector3 dir = to - from;
+            dir.y = 0f;
+            float dist = dir.magnitude;
+            if (dist < 0.0001f) return false;
+            Vector3 origin = from + Vector3.up * Mathf.Max(0.5f * BodyScale, Radius + 0.1f * Scale);
+            return Physics.SphereCast(origin, Radius * 0.7f, dir / dist, out _, dist + Radius * 0.3f, ~(1 << 2), QueryTriggerInteraction.Ignore);
+        }
         public bool Airborne => m_LaunchTime >= 0f || m_HopTime >= 0f;
 
         void OnEnable() => All.Add(this);
@@ -185,6 +242,8 @@ namespace Unity.FPS.NewMode
                 ClearFrost();
                 m_MarkedUntil = 0f;
                 if (m_MarkFx) Destroy(m_MarkFx);
+                ClearCrack();
+                ClearExpose();
             }
         }
 
@@ -236,6 +295,42 @@ namespace Unity.FPS.NewMode
             if (m_MarkFx) Destroy(m_MarkFx);
         }
 
+        public void Crack(float seconds)
+        {
+            if (!Alive) return;
+            bool fresh = !Cracked;
+            m_CrackUntil = Time.time + seconds;
+            if (fresh || !m_CrackFx)
+            {
+                if (m_CrackFx) Destroy(m_CrackFx);
+                m_CrackFx = Fx.Play("Crystal effect red", transform.position, Quaternion.identity, 0.4f * BodyScale, seconds, false, transform);
+            }
+        }
+
+        public void ClearCrack()
+        {
+            m_CrackUntil = 0f;
+            if (m_CrackFx) Destroy(m_CrackFx);
+        }
+
+        public void Expose(float seconds)
+        {
+            if (!Alive) return;
+            bool fresh = !Exposed;
+            m_ExposeUntil = Time.time + seconds;
+            if (fresh || !m_ExposeFx)
+            {
+                if (m_ExposeFx) Destroy(m_ExposeFx);
+                m_ExposeFx = Fx.Play("Sparks flashing yellow", Head + Vector3.up * 0.35f * BodyScale, Quaternion.identity, 0.32f * BodyScale, seconds, false, transform);
+            }
+        }
+
+        public void ClearExpose()
+        {
+            m_ExposeUntil = 0f;
+            if (m_ExposeFx) Destroy(m_ExposeFx);
+        }
+
         // ---------------------------------------------------------------- 움직임
 
         /// <summary>수평으로 밀어낸다 (거인은 덜 밀림)</summary>
@@ -243,7 +338,9 @@ namespace Unity.FPS.NewMode
         {
             if (!Alive || Frozen) return;
             velocity.y = 0f;
-            m_Slide += velocity / (Kind == MobKind.Brute ? 2.5f : 1f);
+            float weight = Kind == MobKind.Boss ? 8f : Kind == MobKind.Brute ? 3f : 1f;
+            m_Slide += velocity * 0.6f / weight;                         // 너무 멀리 날아가지 않게 (예전의 60%)
+            m_Slide = Vector3.ClampMagnitude(m_Slide, 7f * Scale);      // 최고 속도 제한
             m_BumpCooldown = 0f;
         }
 
@@ -255,7 +352,9 @@ namespace Unity.FPS.NewMode
         public void Launch(Vector3 velocity, float gravity)
         {
             if (!Alive || Frozen) return;
-            if (Kind == MobKind.Brute) velocity *= 0.6f;
+            if (Kind == MobKind.Boss) return;                 // 보스는 띄워지지 않음
+            if (Kind == MobKind.Brute) velocity *= 0.5f;
+            velocity.x *= 0.5f; velocity.z *= 0.5f;           // 옆으로는 덜 날아감 (위로 뜨는 느낌 위주)
             m_LaunchVelocity = velocity;
             m_LaunchGravity = gravity;
             m_LaunchTime = 0f;
@@ -266,6 +365,7 @@ namespace Unity.FPS.NewMode
         {
             position.y = GeoFx.GroundY(position, Scale);
             if (Mathf.Abs(position.y - transform.position.y) > 0.8f * Scale) return; // 다른 층으로는 끌려가지 않음
+            if (Blocked(transform.position, position)) return;                     // 벽 너머로는 끌려가지 않음
             transform.position = position;
         }
 
@@ -294,7 +394,8 @@ namespace Unity.FPS.NewMode
                     Vector3 land = transform.position + new Vector3(p.x, 0f, p.z);
                     land.y = GeoFx.GroundY(land, Scale);
                     // 다른 층(아래 낭떠러지)으로 떨어질 자리면 원래 자리로 내려온다
-                    if (Mathf.Abs(land.y - transform.position.y) < 0.6f * Scale && !Leashed(land)) transform.position = land;
+                    // 벽 너머로 넘어가는 자리도 원래 자리로
+                    if (Mathf.Abs(land.y - transform.position.y) < 0.6f * Scale && !Leashed(land) && !Blocked(transform.position, land)) transform.position = land;
                     m_Body.localPosition = Vector3.zero;
                     m_WobbleVel += transform.right * 200f;
                     Landed?.Invoke(this);
@@ -352,10 +453,16 @@ namespace Unity.FPS.NewMode
             if (m_Slide.sqrMagnitude < 0.01f * Scale * Scale) { m_Slide = Vector3.zero; return; }
             Vector3 next = transform.position + m_Slide * dt;
             float ground = GeoFx.GroundY(next, Scale);
-            if (Mathf.Abs(ground - transform.position.y) > 0.45f * Scale || Leashed(next)) { m_Slide = Vector3.zero; return; } // 낭떠러지·벽에서 멈춤 (떨어지지 않게)
+            if (Mathf.Abs(ground - transform.position.y) > 0.45f * Scale || Leashed(next) || Blocked(transform.position, next))
+            {
+                // 낭떠러지·벽에 닿으면 멈춤 (뚫고 가거나 떨어지지 않게) — 벽이면 살짝 튕김
+                m_WobbleVel += Vector3.Cross(Vector3.up, m_Slide.normalized) * 120f;
+                m_Slide = Vector3.zero;
+                return;
+            }
             next.y = ground;
             transform.position = next;
-            m_Slide *= Mathf.Exp(-3.2f * dt); // 마찰: v(t) = v₀e^(−kt)
+            m_Slide *= Mathf.Exp(-6f * dt); // 마찰: v(t) = v₀e^(−kt) — 금방 멈춤
 
             // 핀볼: 빠르게 밀려가다 다른 몹과 부딪치면 둘 다 다친다
             m_BumpCooldown -= dt;
@@ -393,18 +500,18 @@ namespace Unity.FPS.NewMode
             if (m_Slide.sqrMagnitude > 0.1f) return;
             m_HopTimer -= dt;
             if (m_HopTimer > 0f) return;
-            m_HopTimer = UnityEngine.Random.Range(0.5f, 1.4f);
+            m_HopTimer = UnityEngine.Random.Range(0.9f, 1.8f);
 
             // 싸우는 중이면 플레이어 쪽으로, 아니면 집에서 3m 안의 다음 자리로
             Vector2 r = UnityEngine.Random.insideUnitCircle * 3f * Scale;
             Vector3 to = m_Engaged && NewModePlayer.Instance ? NewModePlayer.Instance.transform.position : m_Home + new Vector3(r.x, 0f, r.y);
-            if (m_Engaged) m_HopTimer = UnityEngine.Random.Range(0.25f, 0.6f);
+            if (m_Engaged) m_HopTimer = UnityEngine.Random.Range(0.5f, 0.9f);
             Vector3 step = to - transform.position;
             step.y = 0f;
-            step = Vector3.ClampMagnitude(step, 1.6f * Scale);
+            step = Vector3.ClampMagnitude(step, 1.1f * Scale);
             to = transform.position + step;
             to.y = GeoFx.GroundY(to, Scale);
-            if (Mathf.Abs(to.y - transform.position.y) > 0.45f * Scale || Leashed(to)) return;
+            if (Mathf.Abs(to.y - transform.position.y) > 0.45f * Scale || Leashed(to) || Blocked(transform.position, to)) return;
             m_HopFrom = transform.position;
             m_HopTo = to;
             m_HopDuration = 0.45f;
@@ -478,7 +585,7 @@ namespace Unity.FPS.NewMode
         {
             Vector3 next = transform.position + dir * WalkSpeed * dt;
             float ground = GeoFx.GroundY(next, Scale);
-            if (Mathf.Abs(ground - transform.position.y) > 0.35f * Scale || Leashed(next)) return;
+            if (Mathf.Abs(ground - transform.position.y) > 0.35f * Scale || Leashed(next) || Blocked(transform.position, next)) return;
             next.y = ground;
             transform.position = next;
             // 뒤뚱뒤뚱
