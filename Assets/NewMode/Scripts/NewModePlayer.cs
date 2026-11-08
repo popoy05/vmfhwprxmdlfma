@@ -375,7 +375,8 @@ namespace Unity.FPS.NewMode
             m_PausePanel = pause.gameObject;
             Gs.Dim(pause, 0.55f);
             var panel = Gs.Panel(pause, "Panel", false);
-            UIUtil.Place(panel, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(620f, 760f));
+            bool touch = NewModeTouch.Enabled;
+            UIUtil.Place(panel, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(620f, touch ? 880f : 760f));
             Gs.Header(panel, "메뉴", 46f, new Vector2(0f, -60f), 540f, Gs.Ink);
 
             string[] labels = { "<b>계속하기</b>", NewModeTouch.Enabled ? "캐릭터 정보" : "캐릭터 정보 (Tab)", NewModeTouch.Enabled ? "훈련장 ↔ 모험" : "훈련장 ↔ 모험 (T)", "처음부터 다시", "메인 메뉴" };
@@ -392,6 +393,19 @@ namespace Unity.FPS.NewMode
             {
                 var b = Gs.Button(panel, labels[i], icons[i], actions[i], new Vector2(480f, 86f), 32f, i == 0);
                 UIUtil.Place((RectTransform)b.transform, new Vector2(0.5f, 1f), new Vector2(0f, -170f - i * 112f), new Vector2(480f, 86f));
+            }
+            if (touch)
+            {
+                // 휴대폰: 화면 고정 (가로 한 방향 고정 ↔ 가로 자동 회전)
+                TextMeshProUGUI lockLabel = null;
+                System.Func<string> lockText = () => AppBootstrap.ScreenLocked ? "화면 고정: <b>켜짐</b>" : "화면 고정: <b>꺼짐</b> (자동 회전)";
+                var lockButton = Gs.Button(panel, lockText(), new Color(0.4f, 0.75f, 0.8f), () =>
+                {
+                    AppBootstrap.ScreenLocked = !AppBootstrap.ScreenLocked;
+                    if (lockLabel) lockLabel.text = lockText();
+                }, new Vector2(480f, 86f), 28f);
+                UIUtil.Place((RectTransform)lockButton.transform, new Vector2(0.5f, 1f), new Vector2(0f, -170f - labels.Length * 112f), new Vector2(480f, 86f));
+                lockLabel = lockButton.GetComponentInChildren<TextMeshProUGUI>();
             }
             m_PausePanel.transform.SetAsLastSibling();
             BuildHealthUI(canvas.transform, font);

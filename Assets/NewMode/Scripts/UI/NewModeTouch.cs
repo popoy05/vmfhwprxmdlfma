@@ -67,18 +67,21 @@ namespace Unity.FPS.NewMode
             m_Canvas = UIUtil.Canvas(transform, "Touch Controls", 12);
             Transform c = m_Canvas.transform;
 
-            // 시점 영역 (오른쪽 55%)
+            // 시점 영역: 화면 전체 (버튼·조이스틱이 아닌 빈 곳 어디든 끌면 시점이 돈다) — 맨 뒤에 깔림
+            // UIUtil.Image는 기본으로 터치를 받지 않으므로(raycastTarget = false) 반드시 켜야 한다
             var lookArea = UIUtil.Image(c, "LookArea", new Color(0f, 0f, 0f, 0.001f));
-            lookArea.anchorMin = new Vector2(0.45f, 0f);
-            lookArea.anchorMax = new Vector2(1f, 1f);
+            lookArea.anchorMin = Vector2.zero;
+            lookArea.anchorMax = Vector2.one;
             lookArea.offsetMin = lookArea.offsetMax = Vector2.zero;
+            lookArea.GetComponent<Image>().raycastTarget = true;
             lookArea.gameObject.AddComponent<TouchLookArea>();
 
-            // 이동 조이스틱 (왼쪽 45%, 위쪽 미니맵은 피함)
+            // 이동 조이스틱 (왼쪽 아래 45% × 62%, 위쪽 미니맵은 피함) — 시점 영역 위에
             var moveArea = UIUtil.Image(c, "MoveArea", new Color(0f, 0f, 0f, 0.001f));
             moveArea.anchorMin = Vector2.zero;
             moveArea.anchorMax = new Vector2(0.45f, 0.62f);
             moveArea.offsetMin = moveArea.offsetMax = Vector2.zero;
+            moveArea.GetComponent<Image>().raycastTarget = true;
             var joyBase = UIUtil.RoundedImage(moveArea, "Base", new Color(1f, 1f, 1f, 0.16f), true);
             joyBase.GetComponent<Image>().sprite = Gs.Ring;
             joyBase.GetComponent<Image>().raycastTarget = false;

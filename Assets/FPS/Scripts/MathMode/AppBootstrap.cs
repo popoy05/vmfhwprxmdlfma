@@ -35,6 +35,16 @@ namespace Unity.FPS.MathMode
             SceneManager.sceneLoaded += OnSceneLoaded;
         }
 
+        /// <summary>
+        /// 휴대폰 화면 고정 (기본: 켜짐). 켜면 가로 한 방향(LandscapeLeft)으로 고정되어 폰을 기울여도 화면이 돌지 않는다.
+        /// 끄면 가로 두 방향 사이에서만 자동 회전. 일시정지 메뉴에서 바꾸고, 다음 실행에도 유지된다.
+        /// </summary>
+        public static bool ScreenLocked
+        {
+            get => PlayerPrefs.GetInt("screen.lock", 1) == 1;
+            set { PlayerPrefs.SetInt("screen.lock", value ? 1 : 0); PlayerPrefs.Save(); ApplyScreenMode(); }
+        }
+
         public static void ApplyScreenMode()
         {
 #if UNITY_ANDROID || UNITY_IOS
@@ -42,9 +52,18 @@ namespace Unity.FPS.MathMode
             Screen.sleepTimeout = SleepTimeout.NeverSleep;
             Screen.autorotateToPortrait = false;
             Screen.autorotateToPortraitUpsideDown = false;
-            Screen.autorotateToLandscapeLeft = true;
-            Screen.autorotateToLandscapeRight = true;
-            Screen.orientation = ScreenOrientation.AutoRotation;
+            if (ScreenLocked)
+            {
+                Screen.autorotateToLandscapeLeft = false;
+                Screen.autorotateToLandscapeRight = false;
+                Screen.orientation = ScreenOrientation.LandscapeLeft;
+            }
+            else
+            {
+                Screen.autorotateToLandscapeLeft = true;
+                Screen.autorotateToLandscapeRight = true;
+                Screen.orientation = ScreenOrientation.AutoRotation;
+            }
 #elif UNITY_STANDALONE && !UNITY_EDITOR
             Resolution native = Screen.currentResolution;
             int width = Display.main.systemWidth > 0 ? Display.main.systemWidth : native.width;
