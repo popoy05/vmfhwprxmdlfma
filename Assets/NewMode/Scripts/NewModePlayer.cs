@@ -120,7 +120,12 @@ namespace Unity.FPS.NewMode
             GameObject model = PlayerAppearance.Spawn(transform);
             if (model) m_Animator = model.GetComponentInChildren<Animator>();
             // 캐릭터 컨트롤러는 바닥과 skinWidth만큼 띄워 두므로, 모델을 그만큼 내려 발이 땅에 닿게 한다
-            if (model) model.transform.localPosition = new Vector3(0f, -m_Controller.skinWidth, 0f);
+            if (model)
+            {
+                m_Model = model.transform;
+                m_ModelDrop = -m_Controller.skinWidth;
+                m_Model.localPosition = new Vector3(0f, m_ModelDrop, 0f);
+            }
 
             m_Combat = GetComponent<NewModeCombat>();
             if (!m_Combat) m_Combat = gameObject.AddComponent<NewModeCombat>();
@@ -170,6 +175,7 @@ namespace Unity.FPS.NewMode
 
         void LateUpdate()
         {
+            if (!m_Paused) GroundModel();
             if (!m_Paused && !CameraOverride) UpdateCamera();
         }
 
@@ -188,11 +194,41 @@ namespace Unity.FPS.NewMode
                 look += pad.rightStick.ReadValue() * GamepadLookSpeed * Time.deltaTime;
             // 터치: 오른쪽 화면을 끈 만큼 (화면 높이 기준이라 기기 해상도와 상관없이 같은 느낌)
             if (Unity.FPS.Gameplay.VirtualInput.Active)
-                look += Unity.FPS.Gameplay.VirtualInput.LookThisFrame * (0.2f * 1080f / Mathf.Max(1, Screen.height)) * GameSettings.Sensitivity;
+            {
+                Vector2 touchLook = Unity.FPS.Gameplay.VirtualInput.LookThisFrame * (0.2f * 1080f / Mathf.Max(1, Screen.height)) * GameSettings.Sensitivity;
+                if (InvertTouchY) touchLook.y = -touchLook.y; // 위아래만 반전 (좌우는 그대로)
+                look += touchLook;
+            }
 
             look *= Mathf.Lerp(1f, 0.45f, m_AimBlend); // 조준 중엔 천천히
             m_Yaw += look.x;
             m_Pitch = Mathf.Clamp(m_Pitch - look.y, -35f, 70f);
+        }
+
+        /// <summary>터치 시점 위아래 반전 (기본: 켜짐 — 손가락을 올리면 화면이 아래를 본다)</summary>
+        public static bool InvertTouchY
+        {
+            get => PlayerPrefs.GetInt("look.invertY", 1) == 1;
+            set { PlayerPrefs.SetInt("look.invertY", value ? 1 : 0); PlayerPrefs.Save(); }
+        }
+
+        // 발 붙이기: 땅에 서 있을 때 모델을 실제 지면 높이까지 내린다
+        // (캐릭터 컨트롤러는 skinWidth + 경사 때문에 지면보다 조금 떠 있어서 그대로 두면 둥둥 떠 보임)
+        Transform m_Model;
+        float m_ModelDrop;
+        void GroundModel()
+        {
+            if (!m_Model) return;
+            float s = Scale;
+            float want = -m_Controller.skinWidth; // 공중: 기본 위치
+            bool onGround = m_Controller.isGrounded || (m_Combat && m_Combat.OverridesMotion && m_AirTime < 0.05f);
+            if (onGround && Physics.Raycast(transform.position + Vector3.up * 0.4f * s, Vector3.down, out RaycastHit hit, 0.9f * s, ~(1 << 2), QueryTriggerInteraction.Ignore))
+            {
+                float gap = (hit.point.y - transform.position.y) / Mathf.Max(0.0001f, transform.lossyScale.y);
+                want = Mathf.Clamp(gap - 0.015f, -0.35f, 0.05f); // 살짝 파묻히게 (발바닥이 확실히 닿도록)
+            }
+            m_ModelDrop = Mathf.Lerp(m_ModelDrop, want, 1f - Mathf.Exp(-25f * Time.deltaTime));
+            m_Model.localPosition = new Vector3(0f, m_ModelDrop, 0f);
         }
 
         void Move(Keyboard kb, Gamepad pad)
@@ -376,7 +412,8 @@ namespace Unity.FPS.NewMode
             Gs.Dim(pause, 0.55f);
             var panel = Gs.Panel(pause, "Panel", false);
             bool touch = NewModeTouch.Enabled;
-            UIUtil.Place(panel, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(620f, touch ? 880f : 760f));
+            float step = touch ? 100f : 112f, btnH = touch ? 80f : 86f;
+            UIUtil.Place(panel, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(620f, touch ? 860f : 760f));
             Gs.Header(panel, "메뉴", 46f, new Vector2(0f, -60f), 540f, Gs.Ink);
 
             string[] labels = { "<b>계속하기</b>", NewModeTouch.Enabled ? "캐릭터 정보" : "캐릭터 정보 (Tab)", NewModeTouch.Enabled ? "훈련장 ↔ 모험" : "훈련장 ↔ 모험 (T)", "처음부터 다시", "메인 메뉴" };
@@ -391,11 +428,22 @@ namespace Unity.FPS.NewMode
             };
             for (int i = 0; i < labels.Length; i++)
             {
-                var b = Gs.Button(panel, labels[i], icons[i], actions[i], new Vector2(480f, 86f), 32f, i == 0);
-                UIUtil.Place((RectTransform)b.transform, new Vector2(0.5f, 1f), new Vector2(0f, -170f - i * 112f), new Vector2(480f, 86f));
+                var b = Gs.Button(panel, labels[i], icons[i], actions[i], new Vector2(480f, btnH), 32f, i == 0);
+                UIUtil.Place((RectTransform)b.transform, new Vector2(0.5f, 1f), new Vector2(0f, -170f - i * step), new Vector2(480f, btnH));
             }
             if (touch)
             {
+                // 휴대폰: 시점 위아래 반전 (기본 켜짐)
+                TextMeshProUGUI invLabel = null;
+                System.Func<string> invText = () => InvertTouchY ? "시점 위아래 반전: <b>켜짐</b>" : "시점 위아래 반전: <b>꺼짐</b>";
+                var invButton = Gs.Button(panel, invText(), new Color(0.85f, 0.55f, 0.4f), () =>
+                {
+                    InvertTouchY = !InvertTouchY;
+                    if (invLabel) invLabel.text = invText();
+                }, new Vector2(480f, btnH), 28f);
+                UIUtil.Place((RectTransform)invButton.transform, new Vector2(0.5f, 1f), new Vector2(0f, -170f - (labels.Length + 1) * step), new Vector2(480f, btnH));
+                invLabel = invButton.GetComponentInChildren<TextMeshProUGUI>();
+
                 // 휴대폰: 화면 고정 (가로 한 방향 고정 ↔ 가로 자동 회전)
                 TextMeshProUGUI lockLabel = null;
                 System.Func<string> lockText = () => AppBootstrap.ScreenLocked ? "화면 고정: <b>켜짐</b>" : "화면 고정: <b>꺼짐</b> (자동 회전)";
@@ -403,8 +451,8 @@ namespace Unity.FPS.NewMode
                 {
                     AppBootstrap.ScreenLocked = !AppBootstrap.ScreenLocked;
                     if (lockLabel) lockLabel.text = lockText();
-                }, new Vector2(480f, 86f), 28f);
-                UIUtil.Place((RectTransform)lockButton.transform, new Vector2(0.5f, 1f), new Vector2(0f, -170f - labels.Length * 112f), new Vector2(480f, 86f));
+                }, new Vector2(480f, btnH), 28f);
+                UIUtil.Place((RectTransform)lockButton.transform, new Vector2(0.5f, 1f), new Vector2(0f, -170f - labels.Length * step), new Vector2(480f, btnH));
                 lockLabel = lockButton.GetComponentInChildren<TextMeshProUGUI>();
             }
             m_PausePanel.transform.SetAsLastSibling();
