@@ -66,8 +66,9 @@ namespace Unity.FPS.NewMode
         {
             if (Dead || Invulnerable || m_IFrames > 0f || m_Paused) return;
             amount *= 1f - WeaponCatalog.Current.Stats.Defense; // 직업 방어력
+            amount *= CombatDifficulty.PlayerDamageTaken;               // 어려움: 더 아프게
             HP = Mathf.Max(0f, HP - amount);
-            m_IFrames = 0.4f;
+            m_IFrames = CombatDifficulty.IFrames;
             m_LastHurt = Time.time;
 
             Vector3 away = transform.position - from;
@@ -88,8 +89,8 @@ namespace Unity.FPS.NewMode
         void UpdateHealth()
         {
             m_IFrames -= Time.deltaTime;
-            if (!Dead && HP < MaxHP && Time.time - m_LastHurt > 3f)
-                HP = Mathf.Min(MaxHP, HP + 8f * Time.deltaTime);
+            if (!Dead && HP < MaxHP && Time.time - m_LastHurt > CombatDifficulty.RegenDelay)
+                HP = Mathf.Min(MaxHP, HP + CombatDifficulty.RegenRate * Time.deltaTime);
 
             if (!m_HpFill) return;
             float fill = HP / MaxHP;

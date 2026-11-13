@@ -296,3 +296,12 @@ MonoBehaviour:
   - Name: Teleport
     Prefab: {fileID: 7761031033666763820, guid: 1eb833340b41fb444b576c4dced8d4dc,
       type: 3}
+  Mobs:
+  - Name: Whale
+    Prefab: {fileID: 3582877014822275613, guid: 637fa16e41b58734ea8643b07494530a, type: 3}
+  - Name: GhostYellow
+    Prefab: {fileID: 466174982370493815, guid: 7577e3de9babd604d9880ded032d1752, type: 3}
+  - Name: GhostBlack
+    Prefab: {fileID: 4581718618250850183, guid: 8146374d820c3ac45baeed5014144363, type: 3}
+  - Name: GhostRed
+    Prefab: {fileID: 25901200661331521, guid: aaf0bae1b4fe202469a91f418e19fa04, type: 3}

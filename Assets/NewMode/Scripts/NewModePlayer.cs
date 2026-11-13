@@ -140,6 +140,7 @@ namespace Unity.FPS.NewMode
             SetPaused(false);
             UpdateCamera();
             NewModeTouch.Attach(this); // 휴대폰: 터치 조작 화면
+            KeyGuide.Attach(this);     // PC: 오른쪽 위 조작 키 안내
         }
 
         void OnDestroy()
@@ -171,6 +172,7 @@ namespace Unity.FPS.NewMode
             Move(kb, pad);
 
             if (transform.position.y < FallLimitY) FallRecover();
+            UnderMapGuard();
         }
 
         void LateUpdate()
@@ -225,7 +227,8 @@ namespace Unity.FPS.NewMode
             if (onGround && Physics.Raycast(transform.position + Vector3.up * 0.4f * s, Vector3.down, out RaycastHit hit, 0.9f * s, ~(1 << 2), QueryTriggerInteraction.Ignore))
             {
                 float gap = (hit.point.y - transform.position.y) / Mathf.Max(0.0001f, transform.lossyScale.y);
-                want = Mathf.Clamp(gap - 0.015f, -0.35f, 0.05f); // 살짝 파묻히게 (발바닥이 확실히 닿도록)
+                // 많이 낮으면 땅이 아니라 받침대·장식 상자(광선에 안 잡힘) 위에 서 있는 것 → 기본 위치
+                if (gap > -0.3f) want = Mathf.Clamp(gap - 0.015f, -0.35f, 0.05f); // 살짝 파묻히게 (발바닥이 확실히 닿도록)
             }
             m_ModelDrop = Mathf.Lerp(m_ModelDrop, want, 1f - Mathf.Exp(-25f * Time.deltaTime));
             m_Model.localPosition = new Vector3(0f, m_ModelDrop, 0f);
@@ -379,6 +382,31 @@ namespace Unity.FPS.NewMode
             m_FollowInit = false;
         }
 
+        /// <summary>몹 몸에서 옆으로 밀어낸다 (수평만 — 땅을 뚫지 않게)</summary>
+        public void PushOut(Vector3 delta)
+        {
+            delta.y = 0f;
+            if (m_Controller && m_Controller.enabled && delta.sqrMagnitude > 1e-8f) m_Controller.Move(delta);
+        }
+
+        // 혹시라도 땅 아래로 빠지면 (지면이 머리 위에 있는데 계속 떨어지는 중) 마지막으로 서 있던 자리로 되돌린다
+        Vector3 m_SafePos;
+        bool m_HasSafe;
+        void UnderMapGuard()
+        {
+            float s = Scale;
+            Vector3 pos = transform.position;
+            if (m_Controller.isGrounded)
+            {
+                m_SafePos = pos;
+                m_HasSafe = true;
+                return;
+            }
+            if (!m_HasSafe || (m_Combat && m_Combat.OverridesMotion) || pos.y > m_SafePos.y - 1.5f * s) return;
+            float ground = GeoFx.GroundY(pos, s);
+            if (ground > pos.y + 0.3f * s) Teleport(m_SafePos + Vector3.up * 0.1f * s, m_Yaw);
+        }
+
         /// <summary>대시·구르기가 끝난 뒤 남는 관성 (마찰로 부드럽게 줄어든다)</summary>
         public void AddMomentum(Vector3 v)
         {
@@ -413,7 +441,7 @@ namespace Unity.FPS.NewMode
             var panel = Gs.Panel(pause, "Panel", false);
             bool touch = NewModeTouch.Enabled;
             float step = touch ? 100f : 112f, btnH = touch ? 80f : 86f;
-            UIUtil.Place(panel, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(620f, touch ? 860f : 760f));
+            UIUtil.Place(panel, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(620f, touch ? 860f : 870f));
             Gs.Header(panel, "메뉴", 46f, new Vector2(0f, -60f), 540f, Gs.Ink);
 
             string[] labels = { "<b>계속하기</b>", NewModeTouch.Enabled ? "캐릭터 정보" : "캐릭터 정보 (Tab)", NewModeTouch.Enabled ? "훈련장 ↔ 모험" : "훈련장 ↔ 모험 (T)", "처음부터 다시", "메인 메뉴" };
@@ -430,6 +458,19 @@ namespace Unity.FPS.NewMode
             {
                 var b = Gs.Button(panel, labels[i], icons[i], actions[i], new Vector2(480f, btnH), 32f, i == 0);
                 UIUtil.Place((RectTransform)b.transform, new Vector2(0.5f, 1f), new Vector2(0f, -170f - i * step), new Vector2(480f, btnH));
+            }
+            if (!touch)
+            {
+                // PC: 오른쪽 위 조작 키 안내 켜기·끄기 (기본 켜짐)
+                TextMeshProUGUI keyLabel = null;
+                System.Func<string> keyText = () => KeyGuide.Shown ? "키 안내: <b>켜짐</b>" : "키 안내: <b>꺼짐</b>";
+                var keyButton = Gs.Button(panel, keyText(), new Color(0.4f, 0.75f, 0.8f), () =>
+                {
+                    KeyGuide.Shown = !KeyGuide.Shown;
+                    if (keyLabel) keyLabel.text = keyText();
+                }, new Vector2(480f, btnH), 28f);
+                UIUtil.Place((RectTransform)keyButton.transform, new Vector2(0.5f, 1f), new Vector2(0f, -170f - labels.Length * step), new Vector2(480f, btnH));
+                keyLabel = keyButton.GetComponentInChildren<TextMeshProUGUI>();
             }
             if (touch)
             {

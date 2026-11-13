@@ -11,7 +11,7 @@ using UnityEngine.UI;
 namespace Unity.FPS.NewMode
 {
     // 중세 아레나 모험 (1~5분): 아래 들판에서 출발해 성 꼭대기 안마당의 보스를 쓰러뜨린다.
-    //   1 몸풀기 → 2 문제 → 3 깡총이 무리 → 4 문제 → 5 거인 → 6 문제 → 7 성문 앞 문제 → 8 보스 "성의 수호자"
+    //   1 몸풀기 → 2 문제 → 3 깡총이 무리 → 4 문제 → 5 거인 → 6 문제 → 7 성문 앞 문제 → 8 보스 "하늘 고래"
     //   문제 받침대 4곳 × 3문제 = 12문제 (난이도는 캐릭터 꾸미기에서 고름)
     // 길: 미리 구운 내비메시(Resources/ArenaNavMesh)에서 출발점 → 보스까지 실제로 걸어갈 수 있는 길을 구해 그 위에 단계를 놓는다.
     // 원신 풍 길안내: 왼쪽 위 둥근 미니맵(목표 ◆·적 ●) + 그 아래 임무 글씨 · 목표 위 표시 · 발밑부터 이어지는 빛길
@@ -99,18 +99,42 @@ namespace Unity.FPS.NewMode
             if (m_MapTex) m_MapTex.Release();
         }
 
-        // 풀·덤불에도 충돌체가 있어서 캐릭터가 그 위에 떠 있거나 몹·이펙트가 풀 꼭대기에 놓이던 문제 → 장식 충돌체는 끈다
-        static void DisableDecorColliders()
+        // 풀·덤불에도 충돌체가 있어서 캐릭터가 그 위에 떠 있거나 몹·이펙트가 풀 꼭대기에 놓이던 문제 → 장식의 메시 충돌체는 끈다.
+        // 대신 풀이 아닌 장식(덤불·검·깃발·방패)은 캐릭터가 뚫고 지나가지 않게 단순한 상자 충돌체를 둔다.
+        //  상자는 Ignore Raycast 층 → 땅 높이 재기·몹·이펙트·카메라는 무시하고, 캐릭터(같은 층끼리 충돌)만 막는다.
+        void DisableDecorColliders()
         {
             var props = GameObject.Find("Props");
             if (!props) return;
             string[] decor = { "Grass 1", "Bush_1", "Bush_2", "Bush_3", "Bush_4", "Sword_1", "Sztandar", "Archer Shield 1" };
+            Transform blockers = null;
             foreach (Transform t in props.transform)
             {
                 string name = System.Text.RegularExpressions.Regex.Replace(t.name, @"\s*\(\d+\)$", "");
                 if (System.Array.IndexOf(decor, name) < 0) continue;
                 foreach (var c in t.GetComponentsInChildren<Collider>()) c.enabled = false;
+                if (name == "Grass 1") continue; // 풀은 그대로 지나갈 수 있게
+                if (!blockers) blockers = new GameObject("Decor Blockers").transform;
+                AddBlocker(t, blockers, S);
             }
+        }
+
+        /// <summary>장식 모양을 감싸는 보이지 않는 상자 (캐릭터만 막음)</summary>
+        public static void AddBlocker(Transform target, Transform parent, float s)
+        {
+            Bounds b = default;
+            bool any = false;
+            foreach (var r in target.GetComponentsInChildren<Renderer>())
+            {
+                if (!any) { b = r.bounds; any = true; } else b.Encapsulate(r.bounds);
+            }
+            if (!any) return;
+            var go = new GameObject(target.name + " Block") { layer = 2 };
+            go.transform.SetParent(parent, false);
+            go.transform.position = b.center;
+            var box = go.AddComponent<BoxCollider>();
+            // 얇은 깃발·검도 확실히 막히게 최소 두께, 가장자리 잎사귀는 조금 덜 (85%)
+            box.size = new Vector3(Mathf.Max(b.size.x * 0.85f, 0.25f * s), Mathf.Max(b.size.y, 0.4f * s), Mathf.Max(b.size.z * 0.85f, 0.25f * s));
         }
 
         // 진짜 땅 높이 (내비메시 꺾인 점 사이를 직선으로 이으면 볼록한 언덕 속으로 파묻히므로, 위에서 아래로 쏴서 잰다)
@@ -137,14 +161,14 @@ namespace Unity.FPS.NewMode
 
             var plan = new[]
             {
-                (0.09f, StageKind.Fight, "몸풀기", NewModeTouch.Enabled ? "공격 1·2·3단과 스킬로 허수아비를 쓰러뜨리세요" : "좌클릭 1·2·3단과 Q·E·X로 허수아비를 쓰러뜨리세요", new[] { MobKind.Dummy, MobKind.Dummy, MobKind.Dummy }),
+                (0.09f, StageKind.Fight, "몸풀기", NewModeTouch.Enabled ? "공격 1·2·3단과 스킬로 유령들을 쓰러뜨리세요" : "좌클릭 1·2·3단과 Q·E·X로 유령들을 쓰러뜨리세요", new[] { MobKind.Dummy, MobKind.Dummy, MobKind.Dummy }),
                 (0.21f, StageKind.Quiz, "들판의 문제", "빛기둥 아래 받침대에서 F — 3문제를 풀어요", (MobKind[])null),
-                (0.36f, StageKind.Fight, "깡총이 무리", "깡총이들이 빨갛게 깜빡이면 공격이 와요 — 피하세요!", new[] { MobKind.Hopper, MobKind.Hopper, MobKind.Dummy, MobKind.Hopper }),
+                (0.36f, StageKind.Fight, "꼬마 유령 무리", "유령이 빨갛게 깜빡이면 공격이 와요 — 피하세요!", new[] { MobKind.Hopper, MobKind.Hopper, MobKind.Dummy, MobKind.Hopper }),
                 (0.49f, StageKind.Quiz, "골짜기의 문제", "3문제를 모두 맞히면 공격력 ×2 + 스킬 재사용", (MobKind[])null),
-                (0.66f, StageKind.Fight, "언덕 위의 거인", "거인을 쓰러뜨리세요 — 궁극기(C)를 아끼지 마세요", new[] { MobKind.Brute, MobKind.Hopper, MobKind.Dummy }),
+                (0.66f, StageKind.Fight, "언덕 위의 붉은 유령", "붉은 유령을 쓰러뜨리세요 — 궁극기(C)를 아끼지 마세요", new[] { MobKind.Brute, MobKind.Hopper, MobKind.Dummy }),
                 (0.76f, StageKind.Quiz, "언덕의 문제", "Tab으로 스킬과 능력치를 확인할 수 있어요", (MobKind[])null),
                 (0.88f, StageKind.Quiz, "성문 앞 문제", "마지막 문제를 풀면 성문이 열려요", (MobKind[])null),
-                (1.00f, StageKind.Boss, "성의 수호자", "성 안마당의 보스를 쓰러뜨리세요! 빨간 원은 피하고, 주황 고리는 점프!", new[] { MobKind.Boss }),
+                (1.00f, StageKind.Boss, "하늘 고래", "보스 하늘 고래! 빨간 원·길은 피하고, 주황 고리는 점프! 파란 빛이면 공격이 안 들어가요", new[] { MobKind.Boss }),
             };
 
             foreach (var p in plan)
@@ -219,6 +243,12 @@ namespace Unity.FPS.NewMode
             {
                 case StageKind.Fight:
                 case StageKind.Boss:
+                    // 어려움: 일반 전투마다 유령 둘이 더
+                    if (st.Kind == StageKind.Fight && CombatDifficulty.Hard)
+                    {
+                        var more = new List<MobKind>(st.Mobs) { MobKind.Hopper, MobKind.Dummy };
+                        st.Mobs = more.ToArray();
+                    }
                     for (int i = 0; i < st.Mobs.Length; i++)
                     {
                         float a = i * Mathf.PI * 2f / st.Mobs.Length + 0.4f;
@@ -231,7 +261,7 @@ namespace Unity.FPS.NewMode
                         mob.Hostile = true;
                         mob.MaxHealth = st.Mobs[i] switch
                         {
-                            MobKind.Boss => 150000f,
+                            MobKind.Boss => 220000f, // 하늘 고래 (패턴이 많고 단단함)
                             MobKind.Brute => 28000f,
                             MobKind.Hopper => 6000f,
                             _ => 9000f,
@@ -241,7 +271,7 @@ namespace Unity.FPS.NewMode
                         st.Alive.Add(mob);
                         if (st.Mobs[i] == MobKind.Boss)
                         {
-                            mob.DisplayName = "성의 수호자";
+                            mob.DisplayName = CombatDifficulty.Hard ? "하늘 고래 <color=#FF6A5A>(어려움)</color>" : "하늘 고래";
                             mob.gameObject.AddComponent<BossBrain>().Init(mob);
                             m_Boss = mob;
                         }
@@ -655,7 +685,7 @@ namespace Unity.FPS.NewMode
             UIUtil.Place(panel, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(940f, 780f));
             UIAnim.PopIn(panel, 0.1f, 0.45f);
 
-            Gs.Header(panel, "성의 수호자 처치!", 60f, new Vector2(0f, -70f), 820f, Gs.Ink);
+            Gs.Header(panel, "하늘 고래 처치!", 60f, new Vector2(0f, -70f), 820f, Gs.Ink);
             var starText = Gs.Text(panel, "", 84f, TextAlignmentOptions.Center, Gs.Gold);
             UIUtil.Place(starText.rectTransform, new Vector2(0.5f, 1f), new Vector2(0f, -180f), new Vector2(860f, 100f));
             starText.text = $"<color={Gs.Hex(new Color32(230, 170, 60, 255))}>{new string('★', stars)}</color><color=#00000022>{new string('★', 3 - stars)}</color>";

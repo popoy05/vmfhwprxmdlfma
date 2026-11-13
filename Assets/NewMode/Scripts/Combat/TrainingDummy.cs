@@ -66,12 +66,20 @@ namespace Unity.FPS.NewMode
         GameObject m_ExposeFx;
 
         public bool Alive => m_DownTimer <= 0f;
-        float BodyScale => Scale * (Kind == MobKind.Boss ? 2.6f : Kind == MobKind.Brute ? 1.7f : Kind == MobKind.Hopper ? 0.75f : 1f);
-        public Vector3 Center => transform.position + Vector3.up * 0.9f * BodyScale;
-        public Vector3 Head => transform.position + Vector3.up * 1.62f * BodyScale;
-        public float Radius => 0.35f * BodyScale;
-        public float Height => 1.9f * BodyScale;
-        public float HeadRadius => 0.24f * BodyScale;
+        /// <summary>훈련장 몹: 돌아다니지도, 밀리지도, 끌려가지도 않는다 (맞으면 흔들리기만)</summary>
+        public bool Stationary;
+        /// <summary>잠깐 맞지 않는다 (보스 고래가 잠수·도약 중일 때)</summary>
+        public bool Invulnerable;
+        bool IsBoss => Kind == MobKind.Boss;
+        float BodyScale => Scale * (Kind == MobKind.Boss ? 2.4f : Kind == MobKind.Brute ? 1.7f : Kind == MobKind.Hopper ? 0.75f : 1f);
+        // 보스(고래)는 옆으로 긴 몸 — 몸통 가운데 높이 WhaleCenter, 머리는 앞쪽 끝
+        public Vector3 Center => transform.position + Vector3.up * (IsBoss ? MobVisual.WhaleCenter : 0.9f) * BodyScale;
+        public Vector3 Head => IsBoss ? Center + transform.forward * 1.35f * BodyScale : transform.position + Vector3.up * 1.62f * BodyScale;
+        public float Radius => (IsBoss ? 0.75f : 0.35f) * BodyScale;
+        public float Height => (IsBoss ? 1.75f : 1.9f) * BodyScale;
+        public float HeadRadius => (IsBoss ? 0.45f : 0.24f) * BodyScale;
+        /// <summary>BodyScale (이펙트 크기용)</summary>
+        public float Size => BodyScale;
 
         // ---------------------------------------------------------------- 맞는 자리 (몸 크기 그대로)
         //  몸: 발에서 머리까지의 캡슐 (반지름 Radius) — 거인·보스는 커서 맞는 곳도 크다
@@ -80,6 +88,13 @@ namespace Unity.FPS.NewMode
         /// <summary>광선이 몸(캡슐)에 닿는가. 여유 margin, 닿는 곳까지의 거리 along</summary>
         public bool RayHitsBody(Ray ray, float margin, out float along)
         {
+            if (IsBoss)
+            {
+                // 고래: 꼬리 → 머리로 눕힌 캡슐
+                Vector3 fwd = transform.forward * BodyScale;
+                float bossDist = RaySegmentDistance(ray, Center - fwd * 1.45f, Center + fwd * 1.3f, out along, out _);
+                return bossDist <= 0.62f * BodyScale + margin;
+            }
             Vector3 a = transform.position + Vector3.up * Radius * 0.5f;
             Vector3 b = Head + Vector3.up * HeadRadius * 0.6f;
             float dist = RaySegmentDistance(ray, a, b, out along, out _);
@@ -142,8 +157,50 @@ namespace Unity.FPS.NewMode
             var body = new GameObject("Body").transform;
             body.SetParent(root.transform, false);
             dummy.m_Body = body;
+            if (kind == MobKind.Boss) dummy.DisplayName = "하늘 고래";
             float b = dummy.BodyScale;
 
+            // 모델 (유령·고래). 없으면 예전 도형 허수아비
+            dummy.m_Visual = MobVisual.Build(body, kind, b, out dummy.m_Anim);
+            dummy.m_AnimState = dummy.m_Anim ? MobVisual.IdleState(kind) : null;
+            dummy.m_BobPhase = UnityEngine.Random.Range(0f, 10f);
+            if (!dummy.m_Visual) BuildPrimitive(body, kind, b);
+
+            if (kind == MobKind.Boss)
+            {
+                // 고래: 앞뒤로 누운 캡슐
+                var bc = root.AddComponent<CapsuleCollider>();
+                bc.direction = 2;
+                // 모델 몸통 크기에 맞춤 (몸 길이 3.6b, 몸통 지름 약 1.3b) — 캐릭터가 몸통·배 아래로 파고들지 않게
+                bc.center = new Vector3(0f, MobVisual.WhaleCenter * b, 0f);
+                bc.height = 3.3f * b;
+                bc.radius = 0.62f * b;
+                dummy.m_Collider = bc;
+            }
+            else
+            {
+                var col = root.AddComponent<CapsuleCollider>();
+                col.center = new Vector3(0f, 0.9f, 0f) * b;
+                col.height = 1.8f * b;
+                col.radius = 0.3f * b;
+                dummy.m_Collider = col;
+            }
+
+            // 몹 충돌체는 트리거: 몹이 플레이어 쪽으로 움직여(돌진·깡총) 겹쳐도 캐릭터가 땅 아래로 밀려 들어가지 않게.
+            // 대신 PushPlayer가 플레이어를 옆으로만 밀어내서 몸을 뚫고 지나가지는 못한다.
+            dummy.m_Collider.isTrigger = true;
+            dummy.m_Renderers = body.GetComponentsInChildren<Renderer>();
+            dummy.m_BaseColors = new Color[dummy.m_Renderers.Length];
+            for (int i = 0; i < dummy.m_Renderers.Length; i++)
+                dummy.m_BaseColors[i] = dummy.m_Renderers[i].material.HasProperty("_BaseColor") || dummy.m_Renderers[i].material.HasProperty("_Color")
+                    ? dummy.m_Renderers[i].material.color : Color.white;
+            dummy.m_Health = dummy.MaxHealth;
+            return dummy;
+        }
+
+        // 예전 허수아비 (도형) — 모델 에셋이 없을 때만
+        static void BuildPrimitive(Transform body, MobKind kind, float b)
+        {
             var wood = new Color(0.55f, 0.36f, 0.2f);
             bool heavy = kind == MobKind.Brute || kind == MobKind.Boss;
             var straw = kind == MobKind.Boss ? new Color(0.4f, 0.32f, 0.45f) : kind == MobKind.Brute ? new Color(0.62f, 0.55f, 0.5f) : kind == MobKind.Hopper ? new Color(0.6f, 0.9f, 0.55f) : new Color(0.93f, 0.78f, 0.38f);
@@ -184,19 +241,61 @@ namespace Unity.FPS.NewMode
                 Part(body, PrimitiveType.Capsule, new Vector3(-0.1f, 1.95f, 0f), new Vector3(0.08f, 0.2f, 0.05f), straw, b);
                 Part(body, PrimitiveType.Capsule, new Vector3(0.1f, 1.95f, 0f), new Vector3(0.08f, 0.2f, 0.05f), straw, b);
             }
-
-            var col = root.AddComponent<CapsuleCollider>();
-            col.center = new Vector3(0f, 0.9f, 0f) * b;
-            col.height = 1.8f * b;
-            col.radius = 0.3f * b;
-            dummy.m_Collider = col;
-
-            dummy.m_Renderers = body.GetComponentsInChildren<Renderer>();
-            dummy.m_BaseColors = new Color[dummy.m_Renderers.Length];
-            for (int i = 0; i < dummy.m_Renderers.Length; i++) dummy.m_BaseColors[i] = dummy.m_Renderers[i].material.color;
-            dummy.m_Health = dummy.MaxHealth;
-            return dummy;
         }
+
+        // ---------------------------------------------------------------- 모델 애니메이션
+        Transform m_Visual;
+        Animator m_Anim;
+        string m_AnimState;
+        float m_AnimHold, m_BobPhase;
+
+        /// <summary>애니메이션 상태로 넘어간다 (hold초 동안은 다른 상태로 안 바뀜 — 맞기·공격 동작이 끝까지 보이게)</summary>
+        void PlayAnim(string state, float fade = 0.15f, float hold = 0f, bool restart = false)
+        {
+            if (!m_Anim || string.IsNullOrEmpty(state)) return;
+            if (!restart && (state == m_AnimState || m_AnimHold > 0f)) return;
+            m_AnimState = state;
+            m_AnimHold = hold;
+            m_Anim.CrossFadeInFixedTime(state, fade, 0, 0f);
+        }
+
+        // 평소 모습: 둥실둥실 + 상황에 맞는 동작 (가만히 · 움직임)
+        void UpdateVisual(float dt, bool moving)
+        {
+            if (!m_Visual) return;
+            float b = BodyScale;
+            float bob = IsBoss ? Mathf.Sin(Time.time * 1.3f + m_BobPhase) * 0.05f * b : Mathf.Sin(Time.time * 2.6f + m_BobPhase) * 0.06f * b;
+            m_Visual.localPosition = m_PoseOffset + Vector3.up * bob;
+            m_Visual.localRotation = m_PoseRot;
+            if (m_Anim) m_Anim.speed = Frozen ? 0f : 1f; // 얼면 동작도 멈춤
+            m_AnimHold -= dt;
+            if (m_Windup >= 0f || m_AnimHold > 0f) return;
+            PlayAnim(moving || (IsBoss && m_Engaged) ? MobVisual.MoveState(Kind) : MobVisual.IdleState(Kind), 0.25f);
+        }
+
+        // 보스 패턴용 자세 (솟구치기·뒤로 물러나기 등): 모델만 옮긴다 (맞는 판정 위치는 그대로)
+        Vector3 m_PoseOffset;
+        Quaternion m_PoseRot = Quaternion.identity;
+        public void SetBodyOffset(Vector3 offset) => SetBodyOffset(offset, Quaternion.identity);
+        public void SetBodyOffset(Vector3 offset, Quaternion rotation)
+        {
+            m_PoseOffset = offset;
+            m_PoseRot = rotation;
+            if (m_Visual) { m_Visual.localPosition = offset; m_Visual.localRotation = rotation; }
+        }
+
+        /// <summary>모델 보이기·숨기기 (하늘 강습 중 화면 밖)</summary>
+        public void SetVisible(bool on)
+        {
+            foreach (var r in m_Renderers) if (r) r.enabled = on;
+        }
+
+        /// <summary>보스 패턴 중: 걸어오거나 박치기하지 않음</summary>
+        public bool Hold;
+        public Vector3 Home => m_Home;
+
+        /// <summary>보스 패턴용: 공격 동작 (고래 Attack)</summary>
+        public void PlayAttack(float hold = 0.8f) => PlayAnim(MobVisual.AttackState(Kind), 0.1f, hold, true);
 
         static Transform Part(Transform parent, PrimitiveType type, Vector3 pos, Vector3 size, Color color, float scale)
         {
@@ -217,6 +316,12 @@ namespace Unity.FPS.NewMode
         public void Hit(float damage, Vector3 from, bool big, bool crit = false, string tag = null)
         {
             if (!Alive) return;
+            if (Invulnerable)
+            {
+                GeoFx.Popup(Center + Vector3.up * 0.6f * BodyScale, "<size=70%>면역</size>", new Color(0.7f, 0.85f, 1f), Scale, 1f);
+                return;
+            }
+            if (Hostile) damage *= CombatDifficulty.MobDamageTaken; // 어려움: 모험 몹이 단단함
             m_Health -= damage;
             m_Flash = 1f;
 
@@ -224,7 +329,9 @@ namespace Unity.FPS.NewMode
             away.y = 0f;
             away = away.sqrMagnitude > 0.0001f ? away.normalized : transform.forward;
             Vector3 axis = Vector3.Cross(Vector3.up, away);
-            if (!Frozen) m_WobbleVel += axis * (crit ? 420f : big ? 300f : 170f);
+            // 고래는 무거워서 조금만 흔들린다
+            if (!Frozen) m_WobbleVel += axis * (crit ? 420f : big ? 300f : 170f) * (IsBoss ? 0.12f : 1f);
+            if ((big || crit) && m_Windup < 0f) PlayAnim(MobVisual.HitState(Kind), 0.05f, 0.35f, true);
 
             Color color = crit ? new Color(1f, 0.35f, 0.2f) : big ? new Color(1f, 0.85f, 0.3f) : new Color(0.85f, 0.97f, 1f);
             string text = Mathf.RoundToInt(damage).ToString("N0");
@@ -234,7 +341,14 @@ namespace Unity.FPS.NewMode
 
             if (m_Health <= 0f)
             {
-                m_DownTimer = Respawns ? 3f : 1.2f;
+                m_DownTimer = Respawns ? 3f : IsBoss ? 2.2f : 1.2f;
+                m_Windup = -1f;
+                Invulnerable = false;
+                Hold = false;
+                SetBodyOffset(Vector3.zero);
+                SetVisible(true);
+                m_AnimHold = 0f;
+                PlayAnim(MobVisual.DeadState(Kind), 0.1f, 99f, true);
                 Died?.Invoke(this);
                 AnyDied?.Invoke(this);
                 m_Collider.enabled = false;
@@ -253,6 +367,7 @@ namespace Unity.FPS.NewMode
         public bool AddFrost(int amount, float seconds = 3.5f)
         {
             if (!Alive) return false;
+            if (IsBoss) seconds = Mathf.Min(seconds, 1.4f); // 보스는 금방 얼음을 깬다
             Frost = Mathf.Min(3, Frost + amount);
             if (Frost >= 3 && !Frozen)
             {
@@ -336,7 +451,7 @@ namespace Unity.FPS.NewMode
         /// <summary>수평으로 밀어낸다 (거인은 덜 밀림)</summary>
         public void Knock(Vector3 velocity)
         {
-            if (!Alive || Frozen) return;
+            if (!Alive || Frozen || Stationary) return;
             velocity.y = 0f;
             float weight = Kind == MobKind.Boss ? 8f : Kind == MobKind.Brute ? 3f : 1f;
             m_Slide += velocity * 0.6f / weight;                         // 너무 멀리 날아가지 않게 (예전의 60%)
@@ -355,6 +470,7 @@ namespace Unity.FPS.NewMode
             if (Kind == MobKind.Boss) return;                 // 보스는 띄워지지 않음
             if (Kind == MobKind.Brute) velocity *= 0.5f;
             velocity.x *= 0.5f; velocity.z *= 0.5f;           // 옆으로는 덜 날아감 (위로 뜨는 느낌 위주)
+            if (Stationary) velocity.x = velocity.z = 0f;     // 훈련장: 제자리에서 떴다가 제자리로
             m_LaunchVelocity = velocity;
             m_LaunchGravity = gravity;
             m_LaunchTime = 0f;
@@ -363,6 +479,7 @@ namespace Unity.FPS.NewMode
         /// <summary>강제로 옮긴다 (끌어당기기 등)</summary>
         public void MoveTo(Vector3 position)
         {
+            if (Stationary) return;
             position.y = GeoFx.GroundY(position, Scale);
             if (Mathf.Abs(position.y - transform.position.y) > 0.8f * Scale) return; // 다른 층으로는 끌려가지 않음
             if (Blocked(transform.position, position)) return;                     // 벽 너머로는 끌려가지 않음
@@ -375,7 +492,7 @@ namespace Unity.FPS.NewMode
             if (!Hostile) return false;
             Vector3 d = p - m_Home;
             d.y = 0f;
-            return d.magnitude > (Kind == MobKind.Boss ? 18f : 10f) * Scale;
+            return d.magnitude > (Kind == MobKind.Boss ? 22f : 10f) * Scale;
         }
 
         void Update()
@@ -413,7 +530,14 @@ namespace Unity.FPS.NewMode
                 // 쓰러졌다가 3초 뒤 집에서 다시 일어남
                 m_DownTimer -= dt;
                 float down = m_DownTimer > 0.5f ? 1f : m_DownTimer / 0.5f;
-                m_Body.localRotation = Quaternion.Slerp(Quaternion.identity, Quaternion.Euler(-85f, 0f, 0f), GeoFunctions.EaseOutCubic(down));
+                if (IsBoss && m_Anim)
+                {
+                    // 고래: 쓰러지는 동작(dead) 하면서 천천히 땅으로 가라앉음
+                    m_Body.localRotation = Quaternion.identity;
+                    m_Body.localPosition = Vector3.down * (1f - Mathf.Clamp01(m_DownTimer / 2.2f)) * 0.6f * BodyScale * (Respawns ? down : 1f);
+                }
+                else
+                    m_Body.localRotation = Quaternion.Slerp(Quaternion.identity, Quaternion.Euler(-85f, 0f, 0f), GeoFunctions.EaseOutCubic(down));
                 if (m_DownTimer <= 0f && !Respawns)
                 {
                     Fx.Play("Sparks explode white", Center, Quaternion.identity, 0.4f * Scale, 0.1f, false);
@@ -426,14 +550,20 @@ namespace Unity.FPS.NewMode
                     m_Collider.enabled = true;
                     m_Wobble = m_WobbleVel = Vector3.zero;
                     transform.position = m_Home;
+                    m_Body.localPosition = Vector3.zero;
+                    m_AnimHold = 0f;
+                    PlayAnim(MobVisual.IdleState(Kind), 0.2f, 0f, true);
                 }
                 Tint();
                 return;
             }
 
             Slide(dt);
+            PushPlayer(dt);
             if (Hostile && !Frozen) Think(dt);
-            if (Kind == MobKind.Hopper && !Frozen) Hop(dt);
+            if (Kind == MobKind.Hopper && !Frozen && !Stationary) Hop(dt);
+            UpdateVisual(dt, m_Walked || m_HopTime >= 0f);
+            m_Walked = false;
 
             if (!Frozen)
             {
@@ -442,10 +572,47 @@ namespace Unity.FPS.NewMode
                 m_Wobble += m_WobbleVel * dt;
                 m_Wobble = Vector3.ClampMagnitude(m_Wobble, 40f);
                 Quaternion wobble = Quaternion.Euler(transform.InverseTransformDirection(m_Wobble));
-                if (m_HopTime < 0f && m_Windup < 0f) m_Body.localRotation = wobble * Quaternion.Euler(0f, 0f, m_Engaged && Kind != MobKind.Hopper ? Mathf.Sin(Time.time * 12f) * 5f : 0f);
+                if (m_HopTime < 0f && m_Windup < 0f) m_Body.localRotation = wobble * Quaternion.Euler(0f, 0f, m_Engaged && Kind != MobKind.Hopper && !IsBoss ? Mathf.Sin(Time.time * 12f) * 5f : 0f);
             }
             if (m_Flash > 0f) m_Flash = Mathf.Max(0f, m_Flash - dt * 6f);
             Tint();
+        }
+
+        // 플레이어가 몸과 겹치면 옆(수평)으로만 밀어낸다 — 위아래로는 절대 밀지 않음 (깔려서 땅을 뚫는 일 없음)
+        void PushPlayer(float dt)
+        {
+            NewModePlayer p = NewModePlayer.Instance;
+            if (!p || p.Dead || m_LaunchTime >= 0f) return;
+            Vector3 pp = p.transform.position;
+            float pr = 0.35f * p.Scale;
+            // 높이가 몸과 겹칠 때만 (몸 위로 뛰어넘는 중이면 그대로)
+            float bottom = IsBoss ? Center.y - 0.62f * BodyScale - 1.8f * p.Scale : transform.position.y - 1.8f * p.Scale;
+            float top = IsBoss ? Center.y + 0.62f * BodyScale : transform.position.y + Height;
+            if (pp.y > top || pp.y < bottom) return;
+
+            // 몸에서 가장 가까운 점 (보스: 꼬리→머리 선분, 그 밖: 발 위치)
+            Vector3 c = transform.position;
+            float r = Radius * 0.85f;
+            if (IsBoss)
+            {
+                Vector3 f = transform.forward * BodyScale;
+                Vector3 a = transform.position - f * 1.45f, b = transform.position + f * 1.3f;
+                Vector3 ab = b - a;
+                ab.y = 0f;
+                Vector3 ap = pp - a;
+                ap.y = 0f;
+                float t = Mathf.Clamp01(Vector3.Dot(ap, ab) / Mathf.Max(0.0001f, ab.sqrMagnitude));
+                c = a + ab * t;
+                r = 0.62f * BodyScale;
+            }
+            Vector3 d = pp - c;
+            d.y = 0f;
+            float dist = d.magnitude;
+            float need = r + pr;
+            if (dist >= need) return;
+            Vector3 dir = dist > 0.001f ? d / dist : transform.right;
+            // 한 번에 다 밀지 않고 빠르게 (덜컥거리지 않게)
+            p.PushOut(dir * (need - dist) * Mathf.Min(1f, 18f * dt + 0.35f));
         }
 
         void Slide(float dt)
@@ -505,7 +672,7 @@ namespace Unity.FPS.NewMode
             // 싸우는 중이면 플레이어 쪽으로, 아니면 집에서 3m 안의 다음 자리로
             Vector2 r = UnityEngine.Random.insideUnitCircle * 3f * Scale;
             Vector3 to = m_Engaged && NewModePlayer.Instance ? NewModePlayer.Instance.transform.position : m_Home + new Vector3(r.x, 0f, r.y);
-            if (m_Engaged) m_HopTimer = UnityEngine.Random.Range(0.5f, 0.9f);
+            if (m_Engaged) m_HopTimer = UnityEngine.Random.Range(0.5f, 0.9f) * CombatDifficulty.MobTempo;
             Vector3 step = to - transform.position;
             step.y = 0f;
             step = Vector3.ClampMagnitude(step, 1.1f * Scale);
@@ -522,13 +689,13 @@ namespace Unity.FPS.NewMode
         // ---------------------------------------------------------------- 적 AI (모험 몹)
         //  가까이 오면(7m) 쫓아오고, 닿으면 잠깐 빨갛게 깜빡인 뒤(예고) 때린다 → 그 사이에 피할 수 있음
 
-        bool m_Engaged;
+        bool m_Engaged, m_Walked;
         float m_AttackCd = 1f, m_Windup = -1f;
 
-        float Reach => (Kind == MobKind.Boss ? 2.4f : Kind == MobKind.Brute ? 1.5f : 1f) * Scale;
-        float WindupTime => Kind == MobKind.Boss ? 0.9f : Kind == MobKind.Brute ? 0.75f : 0.55f;
-        float HitDamage => Kind == MobKind.Boss ? 12f : Kind == MobKind.Brute ? 8f : Kind == MobKind.Hopper ? 3f : 5f;
-        float WalkSpeed => (Kind == MobKind.Boss ? 1.3f : Kind == MobKind.Brute ? 0.9f : 1.1f) * Scale;
+        float Reach => Kind == MobKind.Boss ? Radius + 1.6f * Scale : (Kind == MobKind.Brute ? 1.5f : 1f) * Scale;
+        float WindupTime => (Kind == MobKind.Boss ? 0.9f : Kind == MobKind.Brute ? 0.75f : 0.55f) * Mathf.Max(0.7f, CombatDifficulty.MobTempo);
+        float HitDamage => Kind == MobKind.Boss ? 15f : Kind == MobKind.Brute ? 8f : Kind == MobKind.Hopper ? 3f : 5f;
+        float WalkSpeed => (Kind == MobKind.Boss ? 1.3f : Kind == MobKind.Brute ? 0.9f : 1.1f) * Scale * CombatDifficulty.MobSpeed;
         public bool Busy => m_Windup >= 0f;
         public bool Engaged => m_Engaged;
 
@@ -540,8 +707,9 @@ namespace Unity.FPS.NewMode
             float dy = Mathf.Abs(to.y);
             to.y = 0f;
             float d = to.magnitude;
-            float aggro = (Kind == MobKind.Boss ? 11f : 7f) * Scale;
+            float aggro = (Kind == MobKind.Boss ? 15f : 7f) * Scale * CombatDifficulty.MobAggro;
             m_Engaged = d < aggro && dy < 2.5f * Scale && !Leashed(p.transform.position);
+            if (Hold) { m_Windup = -1f; return; } // 보스 패턴 중
 
             // 공격 예고 → 때리기
             if (m_Windup >= 0f)
@@ -551,7 +719,7 @@ namespace Unity.FPS.NewMode
                 if (m_Windup >= WindupTime)
                 {
                     m_Windup = -1f;
-                    m_AttackCd = Kind == MobKind.Boss ? 1.4f : 1.8f;
+                    m_AttackCd = (Kind == MobKind.Boss ? 1.4f : 1.8f) * CombatDifficulty.MobTempo;
                     m_WobbleVel += transform.right * 300f;
                     Fx.Play(Kind == MobKind.Boss ? "Stones hit" : "Dust puff", transform.position + transform.forward * Reach * 0.6f, Quaternion.identity, 0.4f * BodyScale, 0.1f, false);
                     if (d < Reach + 0.5f * Scale && dy < 1.2f * BodyScale) p.TakeDamage(HitDamage, transform.position, Kind == MobKind.Boss ? 6f : 3f);
@@ -578,6 +746,7 @@ namespace Unity.FPS.NewMode
             else if (m_AttackCd <= 0f)
             {
                 m_Windup = 0f;
+                PlayAnim(MobVisual.AttackState(Kind), 0.1f, WindupTime + 0.3f, true);
             }
         }
 
@@ -588,8 +757,9 @@ namespace Unity.FPS.NewMode
             if (Mathf.Abs(ground - transform.position.y) > 0.35f * Scale || Leashed(next) || Blocked(transform.position, next)) return;
             next.y = ground;
             transform.position = next;
-            // 뒤뚱뒤뚱
-            m_Body.localRotation = Quaternion.Euler(0f, 0f, Mathf.Sin(Time.time * 12f) * 6f);
+            m_Walked = true;
+            // 뒤뚱뒤뚱 (고래는 천천히 기우뚱)
+            m_Body.localRotation = IsBoss ? Quaternion.Euler(0f, 0f, Mathf.Sin(Time.time * 2f) * 3f) : Quaternion.Euler(0f, 0f, Mathf.Sin(Time.time * 12f) * 6f);
         }
 
         void Tint()

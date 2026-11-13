@@ -21,6 +21,15 @@ namespace Unity.FPS.NewModeEditor
             "Assets/Eric VFX Studio/Free Game VFX/Prefab",
         };
 
+        // 몹 모델 (보스: 고래 · 일반 몹: Little Ghost)
+        static readonly (string name, string path)[] k_Mobs =
+        {
+            ("Whale", "Assets/Whale3D/Prefabs/Whale_LowPoly.prefab"),
+            ("GhostYellow", "Assets/Little_Ghost2/Prefabs/G1_Yellow.prefab"),
+            ("GhostBlack", "Assets/Little_Ghost2/Prefabs/G1_Black.prefab"),
+            ("GhostRed", "Assets/Little_Ghost2/Prefabs/G2_Red.prefab"),
+        };
+
         [MenuItem("Tools/New Mode/Setup Combat Assets")]
         public static void Build()
         {
@@ -35,6 +44,10 @@ namespace Unity.FPS.NewModeEditor
 
             assets.Weapons = Collect(new[] { k_Weapons }, false);
             assets.Effects = Collect(k_EffectFolders, true);
+            assets.Mobs = k_Mobs
+                .Select(m => new CombatAssets.Entry { Name = m.name, Prefab = AssetDatabase.LoadAssetAtPath<GameObject>(m.path) })
+                .Where(e => e.Prefab)
+                .ToArray();
             EditorUtility.SetDirty(assets);
             AssetDatabase.SaveAssets();
             Debug.Log($"[NewMode] CombatAssets: 무기 {assets.Weapons.Length}개, 이펙트 {assets.Effects.Length}개 (URP 변환 머티리얼 {converted}개)");

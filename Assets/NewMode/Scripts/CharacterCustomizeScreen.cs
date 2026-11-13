@@ -194,23 +194,41 @@ namespace Unity.FPS.NewMode
         // ---------------------------------------------------------------- 오른쪽: 직업 정보 + 문제 난이도 (원신의 캐릭터 정보 카드처럼)
 
         RectTransform m_Card, m_CardBody;
-        TextMeshProUGUI m_LevelValue, m_LevelInfo;
+        TextMeshProUGUI m_LevelValue, m_LevelInfo, m_CombatValue;
+
+        // 전투 난이도: 보통 ↔ 어려움
+        void ToggleCombat()
+        {
+            CombatDifficulty.Hard = !CombatDifficulty.Hard;
+            RefreshLevel();
+            UIAnim.Punch(m_CombatValue.transform, 0.25f);
+        }
 
         void BuildClassCard(Transform canvas)
         {
             m_Card = Gs.Panel(canvas, "Class Card", true);
             m_Card.anchorMin = m_Card.anchorMax = new Vector2(1f, 0.5f);
             m_Card.pivot = new Vector2(1f, 0.5f);
-            m_Card.anchoredPosition = new Vector2(-40f, 60f);
-            m_Card.sizeDelta = new Vector2(600f, 820f);
+            m_Card.anchoredPosition = new Vector2(-40f, 25f);
+            m_Card.sizeDelta = new Vector2(600f, 860f);
             m_CardBody = new GameObject("Body", typeof(RectTransform)).GetComponent<RectTransform>();
             m_CardBody.SetParent(m_Card, false);
             UIUtil.Stretch(m_CardBody, 0f);
-            m_CardBody.offsetMin = new Vector2(0f, 150f);
+            m_CardBody.offsetMin = new Vector2(0f, 212f);
 
-            // 아래: 문제 난이도
+            // 아래: 전투 난이도 · 문제 난이도
             var line = UIUtil.Image(m_Card, "Line", new Color(Gs.Gold.r, Gs.Gold.g, Gs.Gold.b, 0.5f));
-            UIUtil.Place(line, new Vector2(0.5f, 0f), new Vector2(0f, 148f), new Vector2(540f, 2f));
+            UIUtil.Place(line, new Vector2(0.5f, 0f), new Vector2(0f, 210f), new Vector2(540f, 2f));
+            var combatLabel = Gs.Text(m_Card, "<b>전투 난이도</b>", 26f, TextAlignmentOptions.Left, Gs.GoldBright);
+            UIUtil.Place(combatLabel.rectTransform, new Vector2(0f, 0f), new Vector2(150f, 172f), new Vector2(260f, 36f));
+            var cPrev = Gs.Button(m_Card, "", Gs.InkSoft, ToggleCombat, new Vector2(54f, 54f), 20f);
+            UIUtil.Place((RectTransform)cPrev.transform, new Vector2(1f, 0f), new Vector2(-270f, 172f), new Vector2(54f, 54f));
+            ArrowText(cPrev, "◀");
+            var cNext = Gs.Button(m_Card, "", Gs.InkSoft, ToggleCombat, new Vector2(54f, 54f), 20f);
+            UIUtil.Place((RectTransform)cNext.transform, new Vector2(1f, 0f), new Vector2(-50f, 172f), new Vector2(54f, 54f));
+            ArrowText(cNext, "▶");
+            m_CombatValue = Gs.Text(m_Card, "", 30f, TextAlignmentOptions.Center, Color.white);
+            UIUtil.Place(m_CombatValue.rectTransform, new Vector2(1f, 0f), new Vector2(-160f, 172f), new Vector2(160f, 40f));
             var label = Gs.Text(m_Card, "<b>수학 문제 난이도</b>", 26f, TextAlignmentOptions.Left, Gs.GoldBright);
             UIUtil.Place(label.rectTransform, new Vector2(0f, 0f), new Vector2(150f, 112f), new Vector2(260f, 36f));
             var prev = Gs.Button(m_Card, "", Gs.InkSoft, () => CycleLevel(-1), new Vector2(54f, 54f), 20f);
@@ -252,7 +270,10 @@ namespace Unity.FPS.NewMode
             int lv = MathProblem.Level;
             Color[] colors = { new Color(0.5f, 0.9f, 0.6f), new Color(1f, 0.85f, 0.4f), new Color(1f, 0.5f, 0.45f) };
             m_LevelValue.text = $"<b><color={Gs.Hex(colors[lv])}>{MathProblem.LevelNames[lv]}</color></b>";
-            m_LevelInfo.text = MathProblem.LevelInfo[lv] + "  · 받침대 4곳 × 3문제";
+            m_LevelInfo.text = MathProblem.LevelInfo[lv] + "  · 받침대 4곳 × 3문제"
+                + (CombatDifficulty.Hard ? "\n<color=#FF7A6A>전투 어려움: 몹 체력 ×2.5 · 받는 피해 ×2.2 · 보스 50%부터 격노</color>" : "");
+            if (m_CombatValue)
+                m_CombatValue.text = CombatDifficulty.Hard ? "<b><color=#FF6A5A>어려움</color></b>" : "<b><color=#7FE59A>보통</color></b>";
         }
 
         void RefreshClassCard()

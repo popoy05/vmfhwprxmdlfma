@@ -180,6 +180,11 @@ namespace Unity.FPS.NewMode
             glow.EnableKeyword("_EMISSION");
             glow.SetColor("_EmissionColor", new Color(1f, 0.75f, 0.2f) * 2f);
             top.GetComponent<Renderer>().material = glow;
+            // 받침대를 뚫고 지나가지 않게 (Ignore Raycast 층 — 캐릭터만 막고 땅 높이 재기엔 안 걸림)
+            var block = go.AddComponent<CapsuleCollider>();
+            block.center = new Vector3(0f, 0.47f, 0f) * scale;
+            block.height = 0.95f * scale;
+            block.radius = 0.4f * scale;
 
             // 멀리서도 보이게: 에셋 이펙트(반복)를 계속 켜 둔다
             st.m_Effects = new GameObject("Effects");

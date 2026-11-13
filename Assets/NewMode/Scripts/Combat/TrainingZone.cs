@@ -5,8 +5,8 @@ using UnityEngine.InputSystem;
 
 namespace Unity.FPS.NewMode
 {
-    // 허수아비 훈련장: 섬 바깥 하늘에 떠 있는 넓은 연습장.
-    //  T(또는 일시정지 메뉴)로 모험 ↔ 훈련장 워프. 훈련장의 허수아비는 공격하지 않고, 쓰러져도 다시 일어난다.
+    // 훈련장: 섬 바깥 하늘에 떠 있는 넓은 연습장.
+    //  T(또는 일시정지 메뉴)로 모험 ↔ 훈련장 워프. 훈련장의 몹은 움직이지도 공격하지도 않고, 쓰러져도 다시 일어난다.
     //  훈련장에 있는 동안 모험 시간은 멈춘다.
     public class TrainingZone : MonoBehaviour
     {
@@ -68,7 +68,7 @@ namespace Unity.FPS.NewMode
                 wall.AddComponent<BoxCollider>().size = new Vector3(size.x, 6f * s, size.z);
             }
 
-            // 허수아비: 앞줄 허수아비 5, 깡총이 3, 거인 1, 보스 크기 하나 (모두 공격하지 않음)
+            // 앞줄 유령 5, 꼬마 유령 3, 붉은 유령 1, 보스 고래 하나 (모두 제자리 — 움직이거나 공격하지 않음)
             Mob(MobKind.Dummy, new Vector3(-6f, 0f, 6f));
             Mob(MobKind.Dummy, new Vector3(-3f, 0f, 6.5f));
             Mob(MobKind.Dummy, new Vector3(0f, 0f, 7f));
@@ -78,7 +78,7 @@ namespace Unity.FPS.NewMode
             Mob(MobKind.Hopper, new Vector3(-6f, 0f, -5f));
             Mob(MobKind.Hopper, new Vector3(-9f, 0f, -7f));
             Mob(MobKind.Brute, new Vector3(8f, 0f, -3f));
-            Mob(MobKind.Boss, new Vector3(9f, 0f, -10f));
+            Mob(MobKind.Boss, new Vector3(7.5f, 0f, -9f));
 
             // 표지판
             TMP_FontAsset font = MathModeAssets.Load() ? MathModeAssets.Load().Font : null;
@@ -88,7 +88,7 @@ namespace Unity.FPS.NewMode
             sign.transform.localRotation = Quaternion.Euler(0f, 180f, 0f) * Quaternion.Euler(0f, 180f, 0f);
             var tmp = sign.AddComponent<TextMeshPro>();
             if (font) tmp.font = font;
-            tmp.text = "<b>허수아비 훈련장</b>\n<size=50%>마음껏 연습하세요 · T: 모험으로 돌아가기</size>";
+            tmp.text = "<b>훈련장</b>\n<size=50%>마음껏 연습하세요 · T: 모험으로 돌아가기</size>";
             tmp.fontSize = 10f;
             tmp.alignment = TextAlignmentOptions.Center;
             tmp.color = new Color(1f, 0.85f, 0.35f);
@@ -121,6 +121,7 @@ namespace Unity.FPS.NewMode
             var mob = TrainingDummy.Create(p, Quaternion.LookRotation(look), S, kind);
             mob.Hostile = false;
             mob.Respawns = true;
+            mob.Stationary = true; // 훈련장 몹은 제자리에
         }
 
         // ------------------------------------------------------------------ 워프
